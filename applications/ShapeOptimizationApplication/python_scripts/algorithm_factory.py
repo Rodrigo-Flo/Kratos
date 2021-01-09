@@ -46,6 +46,12 @@ def CreateOptimizationAlgorithm(optimization_settings, analyzer, communicator, m
                                          analyzer,
                                          communicator,
                                          model_part_controller)
+    elif algorithm_name == "augmented_lagrange":
+        from .algorithm_augmented_lagrange import AlgorithmAugmentedLagrange
+        return AlgorithmAugmentedLagrange(optimization_settings,
+                                         analyzer,
+                                         communicator,
+                                         model_part_controller)
     else:
         raise NameError("The following optimization algorithm is not supported by the algorithm factory: " + algorithm_name)
 

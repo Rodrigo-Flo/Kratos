@@ -66,8 +66,12 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
         self.objectives = optimization_settings["objectives"]
         self.constraints = optimization_settings["constraints"]
         
+        
+        self.lambda_g0=[]
+
         self.constraint_gradient_variables = {}
         for itr, constraint in enumerate(self.constraints):
+            self.lambda_g0.append(0)
             self.constraint_gradient_variables.update({
                 constraint["identifier"].GetString() : {
                     "gradient": KM.KratosGlobals.GetVariable("DC"+str(itr+1)+"DX"),
@@ -196,7 +200,7 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
     def RunOptimizationLoop(self):
         timer = Timer()
         timer.StartTimer()
-
+        current_lambda_g = self.lambda_g0
         for self.opt_iteration in range(1,self.max_iterations):
             KM.Logger.Print("")
             KM.Logger.Print("===============================================================================")
@@ -207,8 +211,9 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
 
             self.__InitializeNewShape()
 
+            
+        #Begin of __analyzeShape(self)
             self.__AnalyzeShape()
-
             #Writing values of objectives and Gradient in variables of python.
             objective_value = self.communicator.getStandardizedValue(self.objectives[0]["identifier"].GetString())
             objGradientDict = self.communicator.getStandardizedGradient(self.objectives[0]["identifier"].GetString())
@@ -222,21 +227,64 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
                 conGradientDict = self.communicator.getStandardizedGradient(con_id)
                 gradient_variable = self.constraint_gradient_variables[con_id]["gradient"]
                 #Here we write the value of gradient on the DCi/DX
-                WriteDictionaryDataOnNodalVariable(conGradientDict, self.optimization_model_part, gradient_variable)
+                WriteDictionaryDataOnNodalVariable(conGradientDict, self.optimization_model_part, gradient_variable)    
+        #End of __analyzeShape(self)
+
+        #Begin of__computeShapeUpdate(self):
+            self.mapper.Update()
+            self.mapper.InverseMap(KSO.DF1DX, KSO.DF1DX_MAPPED) 
+            
+            for constraint in self.constraints:
+                con_id = constraint["identifier"].GetString()
+                gradient_contraint = self.constraint_gradient_variables[con_id]["gradient"]
+                mapped_gradient_variable = self.constraint_gradient_variables[con_id]["mapped_gradient"]
+                self.mapper.InverseMap(gradient_contraint, mapped_gradient_variable)
+
+            gp_utilities = self.optimization_utilities  
+            g_values,g_gradient_variables,h_values,h_gradient_variables=self.__SeparateConstraints()
+            
+
+
+            #p_g=np.sum(conditions_g)
+            #augmented_lagrange=objective_value+p_g
+            
+                        
+            KM.Logger.PrintInfo("ShapeOpt", "Assemble vector of objective gradient.")
+            nabla_f = KM.Vector()
+            gp_utilities.AssembleVector(nabla_f, KSO.DF1DX_MAPPED)
+            
+            KM.Logger.PrintInfo("ShapeOpt", "Assemble vector of constraints gradient.")
+            g_gradient_vector_kratos=[]
+            for itr in  range(self.g_gradient_variables.size()):
+                g_gradient_vector_kratos.append( KM.Vector())
+                gp_utilities.AssembleVector(g_gradient_vector_kratos[itr], g_gradient_variables[itr])  
+
+            for itr in  range(self.g_gradient_variables.size()):
+                h_gradient_variables.append( KM.Vector())
+                gp_utilities.AssembleVector(g_gradient_vector_kratos[itr], h_gradient_variables[itr])  
+            #lambda_g=Matrix([self.lambda_g])
+            #lambda_h=Matrix([self.lambda_h])
+
+            constraint_vector
+            current_lambda_g
+           
+            if constraint_vector[i]<current_lambda_g[i]:
+                #or append
+                conditions_g[i]=-1*constraint_vector[i]*current_lambda_g[i]+0.5*penalty_factor[i]*constraint_vector[i]**2
+            else:
+                condition_g[i]=-0.5*(current_lambda_g[i]**2)/penalty_factor[i]
+
+
+           
+
             
             
-
-            self.__PostProcessGradientsObtainedFromAnalysis()
-
-            len_obj, dir_obj, len_eqs, dir_eqs, len_ineqs, dir_ineqs =  self.__ConvertAnalysisResultsToLengthDirectionFormat()
-
-            step_length = self.__DetermineMaxStepLength()
-
-            len_bar_obj, len_bar_eqs, len_bar_ineqs = self.__ExpressInStepLengthUnit(len_obj, len_eqs, len_ineqs, step_length)
-
-            dX_bar, process_details = self.__DetermineStep(len_bar_obj, dir_obj, len_bar_eqs, dir_eqs, len_bar_ineqs, dir_ineqs)
-
-            dX = self.__ComputeShapeUpdate(dX_bar, step_length)
+            
+            
+            
+            
+             # Compute value of Lagrange function
+            L = objective_value + current_lambda*penalty_value + 0.5*penalty_factor*penalty_value**2
 
             values_to_be_logged = {}
             values_to_be_logged["len_bar_obj"] = len_bar_obj
@@ -561,7 +609,36 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
                 num_ineqs = num_ineqs+1
 
         return combined_list
+    def __SeparateConstraints(self):
+        equality_constraint_values = []
+        equality_constraint_gradient = []
+        inequality_constraint_values = []
+        inequality_constraint_gradient = []
+      
 
+        for constraint in self.constraints:
+            identifier = constraint["identifier"].GetString()
+            if self.__InequalityConstraint(constraint):
+                constraint_value = self.communicator.getStandardizedValue(identifier)
+                inequality_constraint_values.append(constraint_value)
+                inequality_constraint_gradient.append(
+                    self.constraint_gradient_variables[identifier]["mapped_gradient"])
+            else:
+                constraint_value = self.communicator.getStandardizedValue(identifier)
+                equality_constraint_values.append(constraint_value)
+                equality_constraint_gradient.append(
+                    self.constraint_gradient_variables[identifier]["mapped_gradient"])
+
+
+
+        return  equality_constraint_values,equality_constraint_gradient,inequality_constraint_gradient
+
+    # --------------------------------------------------------------------------
+    def __InequalityConstraint(self, constraint):
+        if constraint["type"].GetString() == "=":
+            return False
+        else:
+            return True
 # ==============================================================================
 class Projector():
     # --------------------------------------------------------------------------

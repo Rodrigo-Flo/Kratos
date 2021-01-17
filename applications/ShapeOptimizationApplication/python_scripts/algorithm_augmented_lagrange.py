@@ -34,8 +34,11 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
         {
             "name"                    : "augmented_lagrange",
             "max_correction_share"    : 0.75,
-            "max_iterations"          : 100,
-            "relative_tolerance"      : 1e-3,
+            "max_total_iterations"    : 10000,
+            "max_outer_iterations"    : 10000,
+            "max_inner_iterations"    : 30,
+            "min_inner_iterations"    :  3,
+            "inner_iteration_tolerance"      : 1e-3,
             "line_search" : {
                 "line_search_type"           : "manual_stepping",
                 "normalize_search_direction" : true,
@@ -66,12 +69,18 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
         self.objectives = optimization_settings["objectives"]
         self.constraints = optimization_settings["constraints"]
         
+        self.lambda_g_0=[]
+        self.lambda_h_0=[]
+        self.p_vect_ineq_0=[]
+        self.p_vect_eq_0=[]
+        self.number_ineq=0
+        self.number_eq=0
+        self.p=1.0
+        self.pmax=1e+10*self.p
         
-        self.lambda_g0=[]
 
         self.constraint_gradient_variables = {}
         for itr, constraint in enumerate(self.constraints):
-            self.lambda_g0.append(0)
             self.constraint_gradient_variables.update({
                 constraint["identifier"].GetString() : {
                     "gradient": KM.KratosGlobals.GetVariable("DC"+str(itr+1)+"DX"),
@@ -85,17 +94,22 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
         self.bead_side = self.algorithm_settings["bead_side"].GetString()
         self.filter_penalty_term = self.algorithm_settings["filter_penalty_term"].GetBool()
         self.estimated_lagrange_multiplier = self.algorithm_settings["estimated_lagrange_multiplier"].GetDouble()
-        self.max_total_iterations = self.algorithm_settings["max_total_iterations"].GetInt()
-        self.max_outer_iterations = self.algorithm_settings["max_outer_iterations"].GetInt()
-        self.max_inner_iterations = self.algorithm_settings["max_inner_iterations"].GetInt()
-        self.min_inner_iterations = self.algorithm_settings["min_inner_iterations"].GetInt()
-        self.inner_iteration_tolerance = self.algorithm_settings["inner_iteration_tolerance"].GetDouble()
+        
+        
+       
         self.max_correction_share = self.algorithm_settings["max_correction_share"].GetDouble()
         """
 
         self.step_size = self.algorithm_settings["line_search"]["step_size"].GetDouble()
-        self.max_iterations = self.algorithm_settings["max_iterations"].GetInt() + 1
-        self.relative_tolerance = self.algorithm_settings["relative_tolerance"].GetDouble()
+        #self.max_iterations = self.algorithm_settings["max_iterations"].GetInt() + 1
+        self.max_total_iterations = self.algorithm_settings["max_total_iterations"].GetInt()
+        self.max_outer_iterations = self.algorithm_settings["max_outer_iterations"].GetInt()
+        
+        self.max_inner_iterations = self.algorithm_settings["max_inner_iterations"].GetInt()
+        self.min_inner_iterations = self.algorithm_settings["min_inner_iterations"].GetInt()
+        self.inner_iteration_tolerance = self.algorithm_settings["inner_iteration_tolerance"].GetDouble()
+        
+        #self.relative_tolerance = self.algorithm_settings["relative_tolerance"].GetDouble()
 
         self.optimization_model_part = model_part_controller.GetOptimizationModelPart()
         
@@ -113,7 +127,7 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
         self.optimization_model_part.AddNodalSolutionStepVariable(KSO.DPDALPHA_MAPPED)
         self.optimization_model_part.AddNodalSolutionStepVariable(KSO.DLDALPHA)
         """
-
+        
     #  How many objective and constraints supports your method?--------------------------------------------------------------------------
     def CheckApplicability(self):
         if self.objectives.size() > 1:
@@ -200,173 +214,268 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
     def RunOptimizationLoop(self):
         timer = Timer()
         timer.StartTimer()
-       
-        for self.opt_iteration in range(1,self.max_iterations):
-            KM.Logger.Print("")
-            KM.Logger.Print("===============================================================================")
-            KM.Logger.PrintInfo("ShapeOpt", timer.GetTimeStamp(), ": Starting optimization iteration ",self.opt_iteration)
-            KM.Logger.Print("===============================================================================\n")
+        total_iteration=0
+        current_lambda_g=self.lambda_g_0
+        current_lambda_h=self.lambda_h_0
+        current_p_vect_ineq=self.p_vect_ineq_0
+        current_p_vect_eq=self.p_vect_eq_0
+        
+        self.__IdentifyNumberInequalities()
+        
+        #self.number_ineq=len(g_values)
+        #self.number_eq=len(h_values)
+        gamma=2.0
+        for itr in range(self.number_ineq):
+            current_lambda_g.append(0.0)
+            current_p_vect_ineq.append(self.p)
+        for itr in range(self.number_eq):
+            current_lambda_h.append(0.0)
+            current_p_vect_eq.append(self.p)
 
-            timer.StartNewLap()
+        if self.number_ineq >0:
+           c_k=list()######Page 455
+           c_knext=list()
+           for itr in range(self.number_ineq):
+               c_k.append(max(g_values[itr],0))
+                
+        if self.number_eq >0:
+            c_k_eq=list()######Page 455
+            c_knext_eq=list()
+            for itr in range(self.number_eq):
+                c_k_eq.append(max(h_values[itr],0))
 
-            self.__InitializeNewShape()
+        g_gradient_vector_kratos=[]
+        h_gradient_vector_kratos=[]
+        
+        
+        
+        is_design_converged = False
+        is_max_total_iterations_reached = False
+        previos_L = None
 
-            
-        #Begin of __analyzeShape(self)
-            self.__AnalyzeShape()
-            #Writing values of objectives and Gradient in variables of python.
-            objective_value = self.communicator.getStandardizedValue(self.objectives[0]["identifier"].GetString())
-            objGradientDict = self.communicator.getStandardizedGradient(self.objectives[0]["identifier"].GetString())
-            WriteDictionaryDataOnNodalVariable(objGradientDict, self.optimization_model_part, KSO.DF1DX)
 
-            #Writing values of constraints and gradient in variables of python, the constraints are standarized.
-            constraint_vector=[]
-            for constraint in self.constraints:
-                con_id = constraint["identifier"].GetString()
-                constraint_vector.append(self.communicator.getStandardizedValue(con_id))
-                conGradientDict = self.communicator.getStandardizedGradient(con_id)
-                gradient_variable = self.constraint_gradient_variables[con_id]["gradient"]
-                #Here we write the value of gradient on the DCi/DX
-                WriteDictionaryDataOnNodalVariable(conGradientDict, self.optimization_model_part, gradient_variable)    
-        #End of __analyzeShape(self)
+        for outer_iteration in range(1,self.max_outer_iterations+1):
+            for self.opt_iteration in range(1,self.max_inner_iterations+1):
+                total_iteration += 1
 
-        #Begin of__computeShapeUpdate(self):
-            self.mapper.Update()
-            self.mapper.InverseMap(KSO.DF1DX, KSO.DF1DX_MAPPED) 
-            #Here all the constraints are mapped
-            for constraint in self.constraints:
-                con_id = constraint["identifier"].GetString()
-                gradient_contraint = self.constraint_gradient_variables[con_id]["gradient"]
-                mapped_gradient_variable = self.constraint_gradient_variables[con_id]["mapped_gradient"]
-                self.mapper.InverseMap(gradient_contraint, mapped_gradient_variable)
+                KM.Logger.Print("")
+                KM.Logger.Print("===============================================================================")
+                KM.Logger.PrintInfo("ShapeOpt", timer.GetTimeStamp(), ": Starting optimization iteration ",self.opt_iteration)
+                KM.Logger.Print("===============================================================================\n")
+
+                timer.StartNewLap()
+
+                self.__InitializeNewShape(total_iteration)
+
+                
+                #Begin of __analyzeShape(self)
+                self.__AnalyzeShape(total_iteration)
+                #Writing values of objectives and Gradient in variables of python.
+                objective_value = self.communicator.getStandardizedValue(self.objectives[0]["identifier"].GetString())
+                objGradientDict = self.communicator.getStandardizedGradient(self.objectives[0]["identifier"].GetString())
+                WriteDictionaryDataOnNodalVariable(objGradientDict, self.optimization_model_part, KSO.DF1DX)
+
+                #Writing values of constraints and gradient in variables of python, the constraints are standarized.
+                constraint_vector=[]
+                for constraint in self.constraints:
+                    con_id = constraint["identifier"].GetString()
+                    constraint_vector.append(self.communicator.getStandardizedValue(con_id))
+                    conGradientDict = self.communicator.getStandardizedGradient(con_id)
+                    gradient_variable = self.constraint_gradient_variables[con_id]["gradient"]
+                    #Here we write the value of gradient on the DCi/DX
+                    WriteDictionaryDataOnNodalVariable(conGradientDict, self.optimization_model_part, gradient_variable)    
+                #End of __analyzeShape(self)
+
+                #Begin of__computeShapeUpdate(self):
+                self.mapper.Update()
+                self.mapper.InverseMap(KSO.DF1DX, KSO.DF1DX_MAPPED) 
+                #Here all the constraints are mapped
+                for constraint in self.constraints:
+                    con_id = constraint["identifier"].GetString()
+                    gradient_contraint = self.constraint_gradient_variables[con_id]["gradient"]
+                    mapped_gradient_variable = self.constraint_gradient_variables[con_id]["mapped_gradient"]
+                    self.mapper.InverseMap(gradient_contraint, mapped_gradient_variable)
+                
+                gp_utilities = self.optimization_utilities  
+                g_values,g_gradient_variables,h_values,h_gradient_variables=self.__SeparateConstraints()
+                
+                #Definitivamente el metodo es general debido a que se involucran vectores de constraints. No nodal. 
+
+                            
+                KM.Logger.PrintInfo("ShapeOpt", "Assemble vector of objective gradient.")
+                nabla_f = KM.Vector()
+                gp_utilities.AssembleVector(nabla_f, KSO.DF1DX_MAPPED)
+                
+                KM.Logger.PrintInfo("ShapeOpt", "Assemble vector of constraints gradient.")
             
-            gp_utilities = self.optimization_utilities  
-            g_values,g_gradient_variables,h_values,h_gradient_variables=self.__SeparateConstraints()
-            
-            lambda_g=[]
-            lambda_h=[]
-            p=1.0
-            p_vect_ineq=[]
-            p_vect_eq=[]
-            
-            for itr in g_gradient_variables:
-                lambda_g.append(0.0)
-                p_vect_ineq.append(p)
-            for itr in h_gradient_variables:
-                lambda_h.append(0.0)
-                p_vect_eq.append(p)
+                
+                for itr in  range(len(g_gradient_variables)) :
+                    g_gradient_vector_kratos.append( KM.Vector())
+                    gp_utilities.AssembleVector(g_gradient_vector_kratos[itr], g_gradient_variables[itr])  
+                h_gradient_vector_kratos=[]
+                for itr in  range(len(h_gradient_variables)):
+                    h_gradient_vector_kratos.append( KM.Vector())
+                    gp_utilities.AssembleVector(h_gradient_vector_kratos[itr], h_gradient_variables[itr])  
+                conditions_ineq=0.0
+                
+                for itr in range(len(g_values)):
+                    if g_values[itr]>(-1*current_lambda_g[itr])/(2*current_p_vect_ineq[itr]):
+                        conditions_ineq+=current_lambda_g[itr]*g_values[itr]+current_p_vect_ineq[itr]*g_values[itr]**2
+                    else:
+                        conditions_ineq+=(-1)*(current_lambda_g[itr])**2/(4*current_p_vect_ineq[itr])
+                
+                conditions_eq=0.0
+                for itr in range(len(h_values)):
+                    conditions_eq+=current_lambda_h[itr]*current_h_values[itr]+current_p_vect_eq[itr]*h_values[itr]**2
+                    
+                
+
+
+                A=objective_value+conditions_ineq+conditions_ineq+conditions_eq
+                
+                conditions_grad_ineq_vector=KM.Vector()
+                conditions_grad_ineq_vector.Resize(nabla_f.Size())
+                conditions_grad_ineq_vector.fill(0.0)
+
+                conditions_grad_eq_vector=KM.Vector()
+                conditions_grad_eq_vector.Resize(nabla_f.Size())
+                conditions_grad_eq_vector.fill(0.0)
+                            
+                for itr in range(len(g_gradient_variables)):
+                    if g_values[itr]>(-1*lambda_g[itr])/(2*current_p_vect_ineq[itr]):
+                        conditions_grad_ineq_vector+=(lambda_g[itr]+2*current_p_vect_ineq[itr]*g_values[itr])*g_gradient_vector_kratos[itr]
+                    else:
+                        conditions_grad_ineq_vector+=conditions_grad_ineq_vector
+                
+                for itr in range(len(h_gradient_variables)):
+                    conditions_grad_eq_vector+=(lambda_g[itr]+2*current_p_vect_ineq[itr]*g_values[itr])*g_gradient_vector_kratos[itr]
             
 
-            
-            #Definitivamente el metodo es general debido a que se involucran vectores de constraints. No nodal. 
 
-                        
-            KM.Logger.PrintInfo("ShapeOpt", "Assemble vector of objective gradient.")
-            nabla_f = KM.Vector()
-            gp_utilities.AssembleVector(nabla_f, KSO.DF1DX_MAPPED)
+                dA_dX_mapped=nabla_f+conditions_grad_ineq_vector+conditions_grad_eq_vector   
+                search_direction_augmented=-1*dA_dX_mapped
+                gp_utilities.AssignVectorToVariable(search_direction_augmented, KSO.SEARCH_DIRECTION)
+                self.optimization_utilities.ComputeControlPointUpdate(self.step_size)
+                self.mapper.Map(KSO.CONTROL_POINT_UPDATE, KSO.SHAPE_UPDATE)
+                
+                #for node in self.design_surface.Nodes:
+                #        dLdalpha_i = node.GetSolutionStepValue(KSO.DF1DALPHA_MAPPED) + current_lambda*node.GetSolutionStepValue(penalty_gradient_variable)
+                #        node.SetSolutionStepValue(KSO.DLDALPHA, dLdalpha_i)
+                
+                
+                #dA_dX_mapped=nabla_f+conditions_grad_ineq+conditions_grad_eq
+                
+                #lambda_g=Matrix([self.lambda_g])
+                #lambda_h=Matrix([self.lambda_h])
+
+                
+                # Compute value of Lagrange function
+                L = objective_value + current_lambda*penalty_value + 0.5*penalty_factor*penalty_value**2
+
+                values_to_be_logged = {}
+                values_to_be_logged["len_bar_obj"] = len_bar_obj
+                values_to_be_logged["len_bar_cons"] = self.__CombineConstraintDataToOrderedList(len_bar_eqs, len_bar_ineqs)
+                values_to_be_logged["step_length"] = step_length
+                values_to_be_logged["test_norm_dX_bar"] = process_details["test_norm_dX"]
+                values_to_be_logged["bi_itrs"] = process_details["bi_itrs"]
+                values_to_be_logged["bi_err"] = process_details["bi_err"]
+                values_to_be_logged["adj_len_bar_obj"] = process_details["adj_len_obj"]
+                values_to_be_logged["adj_len_bar_cons"] = self.__CombineConstraintDataToOrderedList(process_details["adj_len_eqs"], process_details["adj_len_ineqs"])
+                values_to_be_logged["norm_dX"] = cm.NormInf3D(dX)
+
+                self.__LogCurrentOptimizationStep(values_to_be_logged)
+
+                KM.Logger.Print("")
+                KM.Logger.PrintInfo("ShapeOpt", "Time needed for current optimization step = ", timer.GetLapTime(), "s")
+                KM.Logger.PrintInfo("ShapeOpt", "Time needed for total optimization so far = ", timer.GetTotalTime(), "s")
+
+    	        # Convergence check of inner loop
+                if total_iteration == self.max_total_iterations:
+                    is_max_total_iterations_reached = True
+                    break
+
+                if inner_iteration >= self.min_inner_iterations and inner_iteration >1:
+                    # In the first outer iteration, the constraint is not yet active and properly scaled. Therefore, the objective is used to check the relative improvement
+                    if outer_iteration == 1:
+                        if abs(self.data_logger.GetValues("rel_change_objective")[total_iteration]) < self.inner_iteration_tolerance:
+                            break
+                    else:
+                        if abs(dL_relative) < self.inner_iteration_tolerance:
+                            break
+
+                if penalty_value == 0.0:#change that with previous l
+                    is_design_converged = True
+                    break
             
-            KM.Logger.PrintInfo("ShapeOpt", "Assemble vector of constraints gradient.")
-           
-            g_gradient_vector_kratos=[]
-            h_gradient_vector_kratos=[]
-            for itr in  range(len(g_gradient_variables)) :
-                g_gradient_vector_kratos.append( KM.Vector())
-                gp_utilities.AssembleVector(g_gradient_vector_kratos[itr], g_gradient_variables[itr])  
-            h_gradient_vector_kratos=[]
-            for itr in  range(len(h_gradient_variables)):
-                h_gradient_vector_kratos.append( KM.Vector())
-                gp_utilities.AssembleVector(h_gradient_vector_kratos[itr], h_gradient_variables[itr])  
-            conditions_ineq=0.0
+             # Compute penalty factor such that estimated Lagrange multiplier is obtained
+            
+            #Update penalty factor vector
+            if self.number_ineq >0:
+                c_knext.clear()
+                for i in range (self.number_ineq):
+                    c_knext.append(max(g_values[i],0))
+                                
+                for i in range (len(c_knext)):
+                    if  not abs(c_knext[i])<=((1/4)*abs(c_k[i])):
+                        if current_p_vect_ineq[i]>=self.pmax:
+                            current_p_vect_ineq[i]=self.pmax                        
+                        else:
+                            current_p_vect_ineq[i]=gamma*current_p_vect_ineq[i]
+                c_k=c_knext.copy()     
+            if self.number_eq >0:
+                c_knext_eq.clear()
+                for i in range(self.number_eq):    
+                    c_knext_eq.append(max(h_values[i],0))
+                
+                for i in range (len(c_knext_eq)):
+                   if  not abs(c_knext_eq[i])<=((1/4)*abs(c_k_eq[i])):
+                        if current_p_vect_eq[i]>=self.pmax:
+                            current_p_vect_eq[i]=self.pmax                        
+                        else:
+                            current_p_vect_eq[i]=gamma*current_p_vect_eq[i]                      
+                c_k_eq=c_knext_eq.copy()
+
+
+            # Update lambda
             
             for itr in range(len(g_values)):
-                if g_values[itr]>(-1*lambda_g[itr])/(2*p_vect_ineq[itr]):
-                    conditions_ineq+=lambda_g[itr]*g_values[itr]+p_vect_ineq[itr]*g_values[itr]**2
+                if g_values[itr]>(-1*current_lambda_g[itr])/(2*current_p_vect_ineq[itr]):
+                    current_lambda_g[itr]=current_lambda_g[itr]+2*current_p_vect_ineq[itr]
                 else:
-                    conditions_ineq+=(-1)*(lambda_g[itr])**2/(4*p_vect_ineq[itr])
+                    current_lambda_g[itr]=0.0
             
-            conditions_eq=0.0
             for itr in range(len(h_values)):
-                conditions_eq+=lambda_h[itr]*h_values[itr]+p_vect_eq[itr]*h_values[itr]**2
-                
-            
+                current_lambda_h[itr]=current_lambda_h[itr]+2*current_p_vect_eq[itr]
 
 
-            A=objective_value+conditions_ineq+conditions_ineq+conditions_eq
             
-            conditions_grad_ineq_vector=KM.Vector()
-            conditions_grad_ineq_vector.Resize(nabla_f.Size())
-            conditions_grad_ineq_vector.fill(0.0)
+            
 
-            conditions_grad_eq_vector=KM.Vector()
-            conditions_grad_eq_vector.Resize(nabla_f.Size())
-            conditions_grad_eq_vector.fill(0.0)
-                        
-            for itr in range(len(g_gradient_variables)):
-                if g_values[itr]>(-1*lambda_g[itr])/(2*p_vect_ineq[itr]):
-                    conditions_grad_ineq_vector+=(lambda_g[itr]+2*p_vect_ineq[itr]*g_values[itr])*g_gradient_vector_kratos[itr]
-                else:
-                    conditions_grad_ineq_vector+=conditions_grad_ineq_vector
-            
-            for itr in range(len(h_gradient_variables)):
-                conditions_grad_eq_vector+=(lambda_g[itr]+2*p_vect_ineq[itr]*g_values[itr])*g_gradient_vector_kratos[itr]
-         
-
-
-            dA_dX_mapped=nabla_f+conditions_grad_ineq_vector+conditions_grad_eq_vector   
-            search_direction_augmented=-1*dA_dX_mapped
-            gp_utilities.AssignVectorToVariable(search_direction_augmented, KSO.SEARCH_DIRECTION)
-            
-            
-            #for node in self.design_surface.Nodes:
-            #        dLdalpha_i = node.GetSolutionStepValue(KSO.DF1DALPHA_MAPPED) + current_lambda*node.GetSolutionStepValue(penalty_gradient_variable)
-            #        node.SetSolutionStepValue(KSO.DLDALPHA, dLdalpha_i)
-            
-            
-            #dA_dX_mapped=nabla_f+conditions_grad_ineq+conditions_grad_eq
-            
-            #lambda_g=Matrix([self.lambda_g])
-            #lambda_h=Matrix([self.lambda_h])
-
-            
-           
-            if constraint_vector[i]<current_lambda_g[i]:
-                #or append
-                conditions_g[i]=-1*constraint_vector[i]*current_lambda_g[i]+0.5*penalty_factor[i]*constraint_vector[i]**2
-            else:
-                condition_g[i]=-0.5*(current_lambda_g[i]**2)/penalty_factor[i]
-
-
-           
-
-            
-            
-            
-            
-            
-            
-             # Compute value of Lagrange function
-            L = objective_value + current_lambda*penalty_value + 0.5*penalty_factor*penalty_value**2
-
-            values_to_be_logged = {}
-            values_to_be_logged["len_bar_obj"] = len_bar_obj
-            values_to_be_logged["len_bar_cons"] = self.__CombineConstraintDataToOrderedList(len_bar_eqs, len_bar_ineqs)
-            values_to_be_logged["step_length"] = step_length
-            values_to_be_logged["test_norm_dX_bar"] = process_details["test_norm_dX"]
-            values_to_be_logged["bi_itrs"] = process_details["bi_itrs"]
-            values_to_be_logged["bi_err"] = process_details["bi_err"]
-            values_to_be_logged["adj_len_bar_obj"] = process_details["adj_len_obj"]
-            values_to_be_logged["adj_len_bar_cons"] = self.__CombineConstraintDataToOrderedList(process_details["adj_len_eqs"], process_details["adj_len_ineqs"])
-            values_to_be_logged["norm_dX"] = cm.NormInf3D(dX)
-
-            self.__LogCurrentOptimizationStep(values_to_be_logged)
 
             KM.Logger.Print("")
             KM.Logger.PrintInfo("ShapeOpt", "Time needed for current optimization step = ", timer.GetLapTime(), "s")
             KM.Logger.PrintInfo("ShapeOpt", "Time needed for total optimization so far = ", timer.GetTotalTime(), "s")
 
-            if self.__isAlgorithmConverged():
+            # Check convergence of outer loop
+            if outer_iteration == self.max_outer_iterations:
+                KM.Logger.Print("")
+                KM.Logger.PrintInfo("ShapeOpt", "Maximal outer iterations of optimization problem reached!")
                 break
 
+            if is_max_total_iterations_reached:
+                KM.Logger.Print("")
+                KM.Logger.PrintInfo("ShapeOpt", "Maximal total iterations of optimization problem reached!")
+                break
+
+            if is_max_total_iterations_reached:
+                KM.Logger.Print("")
+                KM.Logger.PrintInfo("ShapeOpt", "Maximal total iterations of optimization problem reached!")
+                break
+
+            if is_design_converged:
+                KM.Logger.Print("")
+                KM.Logger.PrintInfo("ShapeOpt", "Update of design variables is zero. Optimization converged!")
+                break
     # --------------------------------------------------------------------------
     def FinalizeOptimizationLoop(self):
         self.analyzer.FinalizeAfterOptimizationLoop()
@@ -390,8 +499,8 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
                 return True
 
     # --------------------------------------------------------------------------
-    def __InitializeNewShape(self):
-        self.model_part_controller.UpdateTimeStep(self.opt_iteration)
+    def __InitializeNewShape(self,total_iteration):
+        self.model_part_controller.UpdateTimeStep(total_iteration)
 
         """
         for node in self.design_surface.Nodes:
@@ -409,7 +518,7 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
         self.model_part_controller.SetReferenceMeshToMesh()
 
     # --------------------------------------------------------------------------
-    def __AnalyzeShape(self):
+    def __AnalyzeShape(self,total_iteration):
         self.communicator.initializeCommunication()
 
         obj_id = self.objectives[0]["identifier"].GetString()
@@ -421,7 +530,7 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
             self.communicator.requestValueOf(con_id)
             self.communicator.requestGradientOf(con_id)
 
-        self.analyzer.AnalyzeDesignAndReportToCommunicator(self.optimization_model_part, self.opt_iteration, self.communicator)
+        self.analyzer.AnalyzeDesignAndReportToCommunicator(self.optimization_model_part, total_iteration, self.communicator) #self.opt_iteration
 
     # --------------------------------------------------------------------------
     def __PostProcessGradientsObtainedFromAnalysis(self):
@@ -676,7 +785,6 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
         inequality_constraint_values = []
         inequality_constraint_gradient = []
       
-
         for constraint in self.constraints:
             identifier = constraint["identifier"].GetString()
             if self.__InequalityConstraint(constraint)==True:
@@ -693,9 +801,23 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
 
 
         return inequality_constraint_values,inequality_constraint_gradient, equality_constraint_values,equality_constraint_gradient
+    
+
+    def __IdentifyNumberInequalities(self):
+        for constraint in self.constraints:
+            identifier = constraint["identifier"].GetString()
+            if self.__InequalityConstraint(constraint)==True:
+               self.number_ineq+=1
+            else:
+                self.number_eq+=1
+
+
+
+        
 
     # --------------------------------------------------------------------------
     def __InequalityConstraint(self, constraint):
+        
         if constraint["type"].GetString() != "=":
             return True
         else:

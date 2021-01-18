@@ -328,7 +328,7 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
                     
 
 
-                A=objective_value+conditions_ineq+conditions_ineq+conditions_eq
+                A=objective_value+conditions_ineq+conditions_eq
                     
                 conditions_grad_ineq_vector=KM.Vector()
                 conditions_grad_ineq_vector.Resize(nabla_f.Size())
@@ -356,18 +356,23 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
                 self.mapper.Map(KSO.CONTROL_POINT_UPDATE, KSO.SHAPE_UPDATE)
                 
                
-                values_to_be_logged = {}
-                values_to_be_logged["len_bar_obj"] = len_bar_obj
-                values_to_be_logged["len_bar_cons"] = self.__CombineConstraintDataToOrderedList(len_bar_eqs, len_bar_ineqs)
-                values_to_be_logged["step_length"] = step_length
-                values_to_be_logged["test_norm_dX_bar"] = process_details["test_norm_dX"]
-                values_to_be_logged["bi_itrs"] = process_details["bi_itrs"]
-                values_to_be_logged["bi_err"] = process_details["bi_err"]
-                values_to_be_logged["adj_len_bar_obj"] = process_details["adj_len_obj"]
-                values_to_be_logged["adj_len_bar_cons"] = self.__CombineConstraintDataToOrderedList(process_details["adj_len_eqs"], process_details["adj_len_ineqs"])
-                values_to_be_logged["norm_dX"] = cm.NormInf3D(dX)
+                # Log current optimization step and store values for next iteration
+                additional_values_to_log = {}
+                additional_values_to_log["step_size"] = self.algorithm_settings["line_search"]["step_size"].GetDouble()
+                additional_values_to_log["outer_iteration"] = outer_iteration
+                additional_values_to_log["inner_iteration"] = inner_iteration
+                additional_values_to_log["lagrange_value"] = A
+                #additional_values_to_log["lagrange_value_relative_change"] = dL_relative
+                #additional_values_to_log["penalty_value"] = penalty_value
+                additional_values_to_log["current_lambda_inequalities"] = current_lambda_g
+                additional_values_to_log["current_lambda_equalities"] = current_lambda_h
+                #additional_values_to_log["penalty_scaling"] = penalty_scaling
+                additional_values_to_log["current_penalty_factor_inequalities"] = current_p_vect_ineq
+                additional_values_to_log["current_penalty_factor_inequalities"] = current_p_vect_eq
+                #additional_values_to_log["max_norm_objective_gradient"] = max_norm_objective_gradient
 
-                self.__LogCurrentOptimizationStep(values_to_be_logged)
+                self.data_logger.LogCurrentValues(total_iteration, additional_values_to_log)
+                self.data_logger.LogCurrentDesign(total_iteration)
 
                 KM.Logger.Print("")
                 KM.Logger.PrintInfo("ShapeOpt", "Time needed for current optimization step = ", timer.GetLapTime(), "s")
@@ -387,9 +392,9 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
                         if abs(dL_relative) < self.inner_iteration_tolerance:
                             break
 
-                if penalty_value == 0.0:#change that with previous l
-                    is_design_converged = True
-                    break
+                #if penalty_value == 0.0:#change that with previous l
+                #    is_design_converged = True
+                #    break
             
              # Compute penalty factor such that estimated Lagrange multiplier is obtained
             

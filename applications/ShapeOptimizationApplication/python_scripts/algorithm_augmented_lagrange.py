@@ -34,11 +34,11 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
         {
             "name"                    : "augmented_lagrange",
             "max_correction_share"    : 0.75,
-            "max_total_iterations"    : 10000,
-            "max_outer_iterations"    : 10000,
-            "max_inner_iterations"    : 30,
+            "max_total_iterations"    : 500,
+            "max_outer_iterations"    : 100,
+            "max_inner_iterations"    : 50,
             "min_inner_iterations"    :  3,
-            "inner_iteration_tolerance"      : 1e-3,
+            "inner_iteration_tolerance"      : 1e-0,
             "line_search" : {
                 "line_search_type"           : "manual_stepping",
                 "normalize_search_direction" : true,
@@ -75,7 +75,7 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
         self.p_vect_eq_0=[]
         self.number_ineq=0
         self.number_eq=0
-        self.p=1.0
+        self.p=1.0e9#1387281818.0
         self.pmax=1e+10*self.p
         
 
@@ -222,7 +222,7 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
         
         self.__IdentifyNumberInequalities()
        
-        gamma=2.0
+        gamma=10.0
         for itr in range(self.number_ineq):
             current_lambda_g.append(0.0)
             current_p_vect_ineq.append(self.p)
@@ -236,8 +236,12 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
         is_design_converged = False
         is_max_total_iterations_reached = False
         previos_L = None
+        flag_g1_inner=False
+        
+
 
         for outer_iteration in range(1,self.max_outer_iterations+1):           
+            flag_g1_inner=False
             for inner_iteration in range(1,self.max_inner_iterations+1):
                 total_iteration += 1
 
@@ -267,6 +271,11 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
                     gradient_variable = self.constraint_gradient_variables[con_id]["gradient"]
                     #Here we write the value of gradient on the DCi/DX
                     WriteDictionaryDataOnNodalVariable(conGradientDict, self.optimization_model_part, gradient_variable)    
+                
+                
+                self.model_part_controller.DampNodalVariableIfSpecified(KSO.DF1DX)
+                self.model_part_controller.DampNodalVariableIfSpecified(KSO.DC1DX)
+                
                 #End of __analyzeShape(self)
 
                 #Begin of__computeShapeUpdate(self):
@@ -281,18 +290,18 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
                     
                 gp_utilities = self.optimization_utilities  
                 g_values,g_gradient_variables,h_values,h_gradient_variables=self.__SeparateConstraints()
-                    
-                if self.number_ineq >0:
-                    c_k=list()######Page 455
-                    c_knext=list()
-                    for itr in range(self.number_ineq):
-                        c_k.append(max(g_values[itr],0))
-                            
-                if self.number_eq >0:
-                    c_k_eq=list()######Page 455
-                    c_knext_eq=list()
-                    for itr in range(self.number_eq):
-                        c_k_eq.append(max(h_values[itr],0))
+                if (inner_iteration==2 and outer_iteration==1) or (outer_iteration>1 and inner_iteration==1):    
+                    if self.number_ineq >0:
+                        c_k=list()######Page 455
+                        c_knext=list()
+                        for itr in range(self.number_ineq):
+                            c_k.append(max(g_values[itr],0))
+                                
+                    if self.number_eq >0:
+                        c_k_eq=list()######Page 455
+                        c_knext_eq=list()
+                        for itr in range(self.number_eq):
+                            c_k_eq.append(max(h_values[itr],0))
                     
                     
                     #Definitivamente el metodo es general debido a que se involucran vectores de constraints. No nodal. 
@@ -315,21 +324,38 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
                     gp_utilities.AssembleVector(h_gradient_vector_kratos[itr], h_gradient_variables[itr])  
                 
                 conditions_ineq=0.0   
-                for itr in range(len(g_values)):
-                    if g_values[itr]>(-1*current_lambda_g[itr])/(2*current_p_vect_ineq[itr]):
-                        conditions_ineq+=current_lambda_g[itr]*g_values[itr]+current_p_vect_ineq[itr]*g_values[itr]**2
-                    else:
-                        conditions_ineq+=(-1)*(current_lambda_g[itr])**2/(4*current_p_vect_ineq[itr])
-                    
+                if (inner_iteration==2 and outer_iteration==1) or (outer_iteration>1 and inner_iteration==1):
+                    for itr in range(len(g_values)):
+                        if g_values[itr]>(-1*current_lambda_g[itr])/(2*current_p_vect_ineq[itr]):
+                            conditions_ineq+=current_lambda_g[itr]*g_values[itr]+current_p_vect_ineq[itr]*g_values[itr]**2
+                            flag_g1_inner=True
+                        else:
+                            conditions_ineq+=(-1)*(current_lambda_g[itr])**2/(4*current_p_vect_ineq[itr])
+                            flag_g1_inner=False
+                                                
+                elif (inner_iteration>2 and outer_iteration==1) or (inner_iteration>1 and outer_iteration>1):
+                    for itr in range(len(g_values)):
+                        if flag_g1_inner==True:
+                            conditions_ineq+=current_lambda_g[itr]*g_values[itr]+current_p_vect_ineq[itr]*g_values[itr]**2
+                        else:
+                            conditions_ineq+=(-1)*(current_lambda_g[itr])**2/(4*current_p_vect_ineq[itr])
+                            
+
                 conditions_eq=0.0
                 for itr in range(len(h_values)):
                     conditions_eq+=current_lambda_h[itr]*h_values[itr]+current_p_vect_eq[itr]*h_values[itr]**2
-                        
+                
+
                     
 
 
                 A=objective_value+conditions_ineq+conditions_eq
-                    
+                if inner_iteration == 1 and total_iteration==1:
+                    dA_relative = 0.0
+                else:
+                    dA_relative = 100*(1-(previous_A/A))
+                
+                   
                 conditions_grad_ineq_vector=KM.Vector()
                 conditions_grad_ineq_vector.Resize(nabla_f.Size())
                 conditions_grad_ineq_vector.fill(0.0)
@@ -339,13 +365,13 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
                 conditions_grad_eq_vector.fill(0.0)
                                 
                 for itr in range(len(g_gradient_variables)):
-                    if g_values[itr]>(-1*current_lambda_g[itr])/(2*current_p_vect_ineq[itr]):
+                    if flag_g1_inner==True:#g_values[itr]>(-1*current_lambda_g[itr])/(2*current_p_vect_ineq[itr]):
                         conditions_grad_ineq_vector+=(current_lambda_g[itr]+2*current_p_vect_ineq[itr]*g_values[itr])*g_gradient_vector_kratos[itr]
                     else:
                         conditions_grad_ineq_vector+=conditions_grad_ineq_vector
                     
                 for itr in range(len(h_gradient_variables)):
-                    conditions_grad_eq_vector+=(current_lambda_h[itr]+2*current_p_vect_ineq[itr]*h_values[itr])*h_gradient_vector_kratos[itr]
+                    conditions_grad_eq_vector+=(current_lambda_h[itr]+2*current_p_vect_eq[itr]*h_values[itr])*h_gradient_vector_kratos[itr]#(current_lambda_h[itr]+2*current_p_vect_eq[itr]*h_values[itr])*h_gradient_vector_kratos[itr]
                 
 
 
@@ -354,7 +380,7 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
                 gp_utilities.AssignVectorToVariable(search_direction_augmented, KSO.SEARCH_DIRECTION)                
                 self.optimization_utilities.ComputeControlPointUpdate(self.step_size)
                 self.mapper.Map(KSO.CONTROL_POINT_UPDATE, KSO.SHAPE_UPDATE)
-                
+                #calcular A de nuevo con objective value, conditions_eq, conditionineq, h_values, 
                
                 # Log current optimization step and store values for next iteration
                 additional_values_to_log = {}
@@ -377,7 +403,7 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
                 KM.Logger.Print("")
                 KM.Logger.PrintInfo("ShapeOpt", "Time needed for current optimization step = ", timer.GetLapTime(), "s")
                 KM.Logger.PrintInfo("ShapeOpt", "Time needed for total optimization so far = ", timer.GetTotalTime(), "s")
-
+                previous_A=A
     	        # Convergence check of inner loop
                 if total_iteration == self.max_total_iterations:
                     is_max_total_iterations_reached = True
@@ -389,7 +415,7 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
                         if abs(self.data_logger.GetValues("rel_change_objective")[total_iteration]) < self.inner_iteration_tolerance:
                             break
                     else:
-                        if abs(dL_relative) < self.inner_iteration_tolerance:
+                        if abs(dA_relative) < self.inner_iteration_tolerance:
                             break
 
                 #if penalty_value == 0.0:#change that with previous l
@@ -405,11 +431,11 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
                     c_knext.append(max(g_values[i],0))
                                 
                 for i in range (len(c_knext)):
-                    if  not abs(c_knext[i])<=((1/4)*abs(c_k[i])):
-                        if current_p_vect_ineq[i]>=self.pmax:
-                            current_p_vect_ineq[i]=self.pmax                        
-                        else:
-                            current_p_vect_ineq[i]=gamma*current_p_vect_ineq[i]
+            #        if  not abs(c_knext[i])<=((1/4)*abs(c_k[i])):
+                    if current_p_vect_ineq[i]>=self.pmax:
+                        current_p_vect_ineq[i]=self.pmax                        
+                    else:
+                        current_p_vect_ineq[i]=gamma*current_p_vect_ineq[i]
                 c_k=c_knext.copy()     
             if self.number_eq >0:
                 c_knext_eq.clear()
@@ -417,11 +443,11 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
                     c_knext_eq.append(max(h_values[i],0))
                 
                 for i in range (len(c_knext_eq)):
-                   if  not abs(c_knext_eq[i])<=((1/4)*abs(c_k_eq[i])):
-                        if current_p_vect_eq[i]>=self.pmax:
-                            current_p_vect_eq[i]=self.pmax                        
-                        else:
-                            current_p_vect_eq[i]=gamma*current_p_vect_eq[i]                      
+                   #if  not abs(c_knext_eq[i])<=((1/4)*abs(c_k_eq[i])):
+                    if current_p_vect_eq[i]>=self.pmax:
+                        current_p_vect_eq[i]=self.pmax                        
+                    else:
+                        current_p_vect_eq[i]=gamma*current_p_vect_eq[i]                      
                 c_k_eq=c_knext_eq.copy()
 
 
@@ -429,12 +455,12 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
             
             for itr in range(len(g_values)):
                 if g_values[itr]>(-1*current_lambda_g[itr])/(2*current_p_vect_ineq[itr]):
-                    current_lambda_g[itr]=current_lambda_g[itr]+2*current_p_vect_ineq[itr]
+                    current_lambda_g[itr]=current_lambda_g[itr]+2*current_p_vect_ineq[itr]*g_values[itr]
                 else:
                     current_lambda_g[itr]=0.0
             
             for itr in range(len(h_values)):
-                current_lambda_h[itr]=current_lambda_h[itr]+2*current_p_vect_eq[itr]
+                current_lambda_h[itr]=current_lambda_h[itr]+2*current_p_vect_eq[itr]*h_values[itr]
 
 
             

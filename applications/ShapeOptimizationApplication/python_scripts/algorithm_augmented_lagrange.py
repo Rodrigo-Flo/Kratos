@@ -387,14 +387,14 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
                 additional_values_to_log["step_size"] = self.algorithm_settings["line_search"]["step_size"].GetDouble()
                 additional_values_to_log["outer_iteration"] = outer_iteration
                 additional_values_to_log["inner_iteration"] = inner_iteration
-                additional_values_to_log["lagrange_value"] = A
-                #additional_values_to_log["lagrange_value_relative_change"] = dL_relative
+                additional_values_to_log["augmented_value"] = A
+                additional_values_to_log["augmented_value_relative_change"] = dA_relative
                 #additional_values_to_log["penalty_value"] = penalty_value
                 additional_values_to_log["current_lambda_inequalities"] = current_lambda_g
                 additional_values_to_log["current_lambda_equalities"] = current_lambda_h
                 #additional_values_to_log["penalty_scaling"] = penalty_scaling
                 additional_values_to_log["current_penalty_factor_inequalities"] = current_p_vect_ineq
-                additional_values_to_log["current_penalty_factor_inequalities"] = current_p_vect_eq
+                additional_values_to_log["current_penalty_factor_equalities"] = current_p_vect_eq
                 #additional_values_to_log["max_norm_objective_gradient"] = max_norm_objective_gradient
 
                 self.data_logger.LogCurrentValues(total_iteration, additional_values_to_log)

@@ -42,7 +42,10 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
             "line_search" : {
                 "line_search_type"           : "manual_stepping",
                 "normalize_search_direction" : true,
-                "step_size"                  : 0.5
+                "step_size"                  : 0.5,
+                "estimation_tolerance"       : 0.1,
+                "increase_factor"            : 1.05,
+                "max_increase_factor"        : 1.0
             }
         }""")
         #Optimization 
@@ -68,7 +71,7 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
 
         self.objectives = optimization_settings["objectives"]
         self.constraints = optimization_settings["constraints"]
-        
+        self.previous_objective_value = None
         self.lambda_g_0=[]
         self.lambda_h_0=[]
         self.p_vect_ineq_0=[]
@@ -99,8 +102,11 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
        
         self.max_correction_share = self.algorithm_settings["max_correction_share"].GetDouble()
         """
-
+        self.estimation_tolerance = self.algorithm_settings["line_search"]["estimation_tolerance"].GetDouble()
         self.step_size = self.algorithm_settings["line_search"]["step_size"].GetDouble()
+        self.line_search_type = self.algorithm_settings["line_search"]["line_search_type"].GetString()
+        self.increase_factor = self.algorithm_settings["line_search"]["increase_factor"].GetDouble()
+        self.max_step_size = self.step_size*self.algorithm_settings["line_search"]["max_increase_factor"].GetDouble()
         #self.max_iterations = self.algorithm_settings["max_iterations"].GetInt() + 1
         self.max_total_iterations = self.algorithm_settings["max_total_iterations"].GetInt()
         self.max_outer_iterations = self.algorithm_settings["max_outer_iterations"].GetInt()
@@ -277,6 +283,8 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
                 self.model_part_controller.DampNodalVariableIfSpecified(KSO.DC1DX)
                 
                 #End of __analyzeShape(self)
+                if self.line_search_type == "adaptive_stepping" and total_iteration > 1:
+                    self.__adjustStepSize()
 
                 #Begin of__computeShapeUpdate(self):
                 self.mapper.Update()
@@ -377,14 +385,16 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
 
                 dA_dX_mapped=nabla_f+conditions_grad_ineq_vector+conditions_grad_eq_vector   
                 search_direction_augmented=-1*dA_dX_mapped
-                gp_utilities.AssignVectorToVariable(search_direction_augmented, KSO.SEARCH_DIRECTION)                
+                gp_utilities.AssignVectorToVariable(search_direction_augmented, KSO.SEARCH_DIRECTION) 
+
                 self.optimization_utilities.ComputeControlPointUpdate(self.step_size)
                 self.mapper.Map(KSO.CONTROL_POINT_UPDATE, KSO.SHAPE_UPDATE)
                 #calcular A de nuevo con objective value, conditions_eq, conditionineq, h_values, 
                
                 # Log current optimization step and store values for next iteration
+                self.previous_objective_value = self.communicator.getStandardizedValue(self.objectives[0]["identifier"].GetString())
                 additional_values_to_log = {}
-                additional_values_to_log["step_size"] = self.algorithm_settings["line_search"]["step_size"].GetDouble()
+                additional_values_to_log["step_size"] = self.step_size#self.algorithm_settings["line_search"]["step_size"].GetDouble()
                 additional_values_to_log["outer_iteration"] = outer_iteration
                 additional_values_to_log["inner_iteration"] = inner_iteration
                 additional_values_to_log["augmented_value"] = A
@@ -418,9 +428,7 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
                         if abs(dA_relative) < self.inner_iteration_tolerance:
                             break
 
-                #if penalty_value == 0.0:#change that with previous l
-                #    is_design_converged = True
-                #    break
+               
             
              # Compute penalty factor such that estimated Lagrange multiplier is obtained
             
@@ -482,9 +490,11 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
                 KM.Logger.PrintInfo("ShapeOpt", "Maximal total iterations of optimization problem reached!")
                 break
 
-            if is_max_total_iterations_reached:
+            # Check for relative tolerance
+            relative_change_of_objective_value = self.data_logger.GetValues("rel_change_objective")[total_iteration]
+            if abs(relative_change_of_objective_value) < self.inner_iteration_tolerance:
                 KM.Logger.Print("")
-                KM.Logger.PrintInfo("ShapeOpt", "Maximal total iterations of optimization problem reached!")
+                KM.Logger.PrintInfo("ShapeOpt", "Optimization problem converged within a relative objective tolerance of ",self.inner_iteration_tolerance,"%.")
                 break
 
             if is_design_converged:
@@ -838,6 +848,47 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
         else:
             return False
 # ==============================================================================
+
+    def __adjustStepSize(self):
+        current_a = self.step_size
+
+        # Compare actual and estimated improvement using linear information from the previos step
+        dfda1 = 0.0
+        for node in self.design_surface.Nodes:
+            # The following variables are not yet updated and therefore contain the information from the previos step
+            s1 = node.GetSolutionStepValue(KSO.SEARCH_DIRECTION)
+            dfds1 = node.GetSolutionStepValue(KSO.DF1DX_MAPPED)
+            dfda1 += s1[0]*dfds1[0] + s1[1]*dfds1[1] + s1[2]*dfds1[2]
+
+        f2 = self.communicator.getStandardizedValue(self.objectives[0]["identifier"].GetString())
+        f1 = self.previous_objective_value
+
+        df_actual = f2 - f1
+        df_estimated = current_a*dfda1
+
+        # Adjust step size if necessary
+        if f2 < f1:
+            estimation_error = (df_actual-df_estimated)/df_actual
+
+            # Increase step size if estimation based on linear extrapolation matches the actual improvement within a specified tolerance
+            if estimation_error < self.estimation_tolerance:
+                new_a = min(current_a*self.increase_factor, self.max_step_size)
+
+            # Leave step size unchanged if a nonliner change in the objective is observed but still a descent direction is obtained
+            else:
+                new_a = current_a
+        else:
+            # Search approximation of optimal step using interpolation
+            a = current_a
+            corrected_step_size = - 0.5 * dfda1 * a**2 / (f2 - f1 - dfda1 * a )
+
+            # Starting from the new design, and assuming an opposite gradient direction, the step size to the approximated optimum behaves reciprocal
+            new_a = current_a-corrected_step_size
+
+        self.step_size = new_a
+
+
+
 class Projector():
     # --------------------------------------------------------------------------
     def __init__(self, len_obj, dir_obj, len_eqs, dir_eqs, len_ineqs, dir_ineqs, settings):

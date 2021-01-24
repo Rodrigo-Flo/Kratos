@@ -91,6 +91,11 @@ namespace Kratos
     KRATOS_CREATE_3D_VARIABLE_WITH_COMPONENTS(BACKGROUND_NORMAL);
     KRATOS_CREATE_3D_VARIABLE_WITH_COMPONENTS(OUT_OF_PLANE_DELTA);
 
+    //For Augmented Lagrange 
+    KRATOS_CREATE_3D_VARIABLE_WITH_COMPONENTS(DADX);
+
+    KRATOS_CREATE_3D_VARIABLE_WITH_COMPONENTS(DADX_MAPPED);
+
     // Eof variables
 
     KratosShapeOptimizationApplication::KratosShapeOptimizationApplication() :

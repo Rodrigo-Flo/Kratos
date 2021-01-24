@@ -28,7 +28,7 @@ import copy
 
 # ==============================================================================
 class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
-    # --------------------------------------------------------------------------
+
     def __init__(self, optimization_settings, analyzer, communicator, model_part_controller):
         default_algorithm_settings = KM.Parameters("""
         {
@@ -71,7 +71,8 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
 
         self.objectives = optimization_settings["objectives"]
         self.constraints = optimization_settings["constraints"]
-        self.previous_objective_value = None
+        self.A=0.0
+        self.dA_relative=0.0
         self.lambda_g_0=[]
         self.lambda_h_0=[]
         self.p_vect_ineq_0=[]
@@ -91,17 +92,7 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
                 }
             })
 
-        #Bead optimization
-        """
-        self.bead_height = self.algorithm_settings["bead_height"].GetDouble()
-        self.bead_side = self.algorithm_settings["bead_side"].GetString()
-        self.filter_penalty_term = self.algorithm_settings["filter_penalty_term"].GetBool()
-        self.estimated_lagrange_multiplier = self.algorithm_settings["estimated_lagrange_multiplier"].GetDouble()
         
-        
-       
-        self.max_correction_share = self.algorithm_settings["max_correction_share"].GetDouble()
-        """
         self.estimation_tolerance = self.algorithm_settings["line_search"]["estimation_tolerance"].GetDouble()
         self.step_size = self.algorithm_settings["line_search"]["step_size"].GetDouble()
         self.line_search_type = self.algorithm_settings["line_search"]["line_search_type"].GetString()
@@ -121,27 +112,13 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
         
         #Variables for steepest descendent
         self.optimization_model_part.AddNodalSolutionStepVariable(KSO.SEARCH_DIRECTION)
-        self.optimization_model_part.AddNodalSolutionStepVariable(KSO.CORRECTION)
         self.optimization_model_part.AddNodalSolutionStepVariable(KSO.DADX_MAPPED)
 
-
-        #Bead optimization variables
-        """
-        self.optimization_model_part.AddNodalSolutionStepVariable(KSO.ALPHA)
-        self.optimization_model_part.AddNodalSolutionStepVariable(KSO.ALPHA_MAPPED)
-        self.optimization_model_part.AddNodalSolutionStepVariable(KSO.DF1DALPHA)
-        self.optimization_model_part.AddNodalSolutionStepVariable(KSO.DF1DALPHA_MAPPED)
-        self.optimization_model_part.AddNodalSolutionStepVariable(KSO.DPDALPHA)
-        self.optimization_model_part.AddNodalSolutionStepVariable(KSO.DPDALPHA_MAPPED)
-        self.optimization_model_part.AddNodalSolutionStepVariable(KSO.DLDALPHA)
-        """
-        
-    #  How many objective and constraints supports your method?--------------------------------------------------------------------------
+# ==============================================================================
     def CheckApplicability(self):
         if self.objectives.size() > 1:
             raise RuntimeError("Augmented Lagrange Method algorithm only supports one objective function at the moment!")
-
-    # --------------------------------------------------------------------------
+# ==============================================================================
     def InitializeOptimizationLoop(self):
         self.model_part_controller.Initialize()
         self.model_part_controller.SetMinimalBufferSize(2)
@@ -218,7 +195,7 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
             raise RuntimeError("Wrong definition of bead direction. Options are: 1) [] -> takes surface normal, 2) [x.x,x.x,x.x] -> takes specified vector.")
 
         """
-    # --------------------------------------------------------------------------
+# ==============================================================================
     def RunOptimizationLoop(self):
         timer = Timer()
         timer.StartTimer()
@@ -249,13 +226,10 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
                 KM.Logger.PrintInfo("ShapeOpt", timer.GetTimeStamp(),  ": Starting iteration ",outer_iteration,".",inner_iteration,".",total_iteration,"(outer . inner. total)")
                 KM.Logger.Print("===============================================================================\n")
                 timer.StartNewLap()
-                
 
                 self.__InitializeNewShape(total_iteration)
             
                 self.__AnalyzeShape(total_iteration)
-
-               
 
                 self.__Mapping()
                 gp_utilities = self.optimization_utilities
@@ -306,8 +280,9 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
                 
 
                 A=objective_value+conditions_ineq+conditions_eq
+                self.A=A
                 if self.line_search_type == "adaptive_stepping" and total_iteration > 1:
-                   self.__adjustStepSize(A,previous_A)
+                   self.__AdjustStepSize(previous_A)
                 
                 if inner_iteration ==1 :
                     A_init_inner=A
@@ -341,30 +316,15 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
                 
                 self.optimization_utilities.ComputeControlPointUpdate(self.step_size)
                 self.mapper.Map(KSO.CONTROL_POINT_UPDATE, KSO.SHAPE_UPDATE)
-                #calcular A de nuevo con objective value, conditions_eq, conditionineq, h_values, 
-               
-                # Log current optimization step and store values for next iteration
-                self.previous_objective_value = self.communicator.getStandardizedValue(self.objectives[0]["identifier"].GetString())
-                additional_values_to_log = {}
-                additional_values_to_log["step_size"] = self.step_size#self.algorithm_settings["line_search"]["step_size"].GetDouble()
-                additional_values_to_log["outer_iteration"] = outer_iteration
-                additional_values_to_log["inner_iteration"] = inner_iteration
-                additional_values_to_log["augmented_value"] = A
-                additional_values_to_log["augmented_value_relative_change"] = dA_relative
-                #additional_values_to_log["penalty_value"] = penalty_value
-                additional_values_to_log["current_lambda_inequalities"] = current_lambda_g
-                additional_values_to_log["current_lambda_equalities"] = current_lambda_h
-                #additional_values_to_log["penalty_scaling"] = penalty_scaling
-                additional_values_to_log["current_penalty_factor_inequalities"] = current_p_vect_ineq
-                additional_values_to_log["current_penalty_factor_equalities"] = current_p_vect_eq
-                #additional_values_to_log["max_norm_objective_gradient"] = max_norm_objective_gradient
 
-                self.data_logger.LogCurrentValues(total_iteration, additional_values_to_log)
-                self.data_logger.LogCurrentDesign(total_iteration)
-
+                self.dA_relative=dA_relative
+                self.__LogCurrentOptimizationStep(outer_iteration,inner_iteration,
+                                                current_lambda_g,current_lambda_h,current_p_vect_ineq,current_p_vect_eq,
+                                                total_iteration)
                 KM.Logger.Print("")
                 KM.Logger.PrintInfo("ShapeOpt", "Time needed for current optimization step = ", timer.GetLapTime(), "s")
                 KM.Logger.PrintInfo("ShapeOpt", "Time needed for total optimization so far = ", timer.GetTotalTime(), "s")
+                
                 previous_A=A
     	        # Convergence check of inner loop
                 if total_iteration == self.max_total_iterations:
@@ -380,10 +340,6 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
                         if abs(dA_relative) < self.inner_iteration_tolerance:
                             break
 
-               
-            
-             # Compute penalty factor such that estimated Lagrange multiplier is obtained
-            
             #Update penalty factor vector
             if self.number_ineq >0:
                 c_knext.clear()
@@ -410,7 +366,6 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
                         else:
                             current_p_vect_eq[i]=gamma*current_p_vect_eq[i]                      
                 c_k_eq=c_knext_eq.copy()
-
 
             # Update lambda
             
@@ -439,13 +394,6 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
                 KM.Logger.Print("")
                 KM.Logger.PrintInfo("ShapeOpt", "Maximal total iterations of optimization problem reached!")
                 break
-
-            # Check for relative tolerance
-            #relative_change_of_objective_value = self.data_logger.GetValues("rel_change_objective")[total_iteration]
-            #if abs(relative_change_of_objective_value) < self.inner_iteration_tolerance:
-            #   KM.Logger.Print("")
-            #   KM.Logger.PrintInfo("ShapeOpt", "Optimization problem converged within a relative objective tolerance of ",self.inner_iteration_tolerance,"%.")
-            #   break
             
             relative_tolerance_outer=100.0*(abs(A-A_init_inner)/abs(A))
             KM.Logger.Print("Relative outer tolerance ",relative_tolerance_outer)
@@ -458,12 +406,11 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
                 KM.Logger.Print("")
                 KM.Logger.PrintInfo("ShapeOpt", "Update of design variables is zero. Optimization converged!")
                 break
-    # --------------------------------------------------------------------------
+# ==============================================================================
     def FinalizeOptimizationLoop(self):
         self.analyzer.FinalizeAfterOptimizationLoop()
         self.data_logger.FinalizeDataLogging()
-
-    # --------------------------------------------------------------------------
+# ==============================================================================
     def __isAlgorithmConverged(self):
 
         if self.opt_iteration > 1 :
@@ -479,8 +426,7 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
                 KM.Logger.Print("")
                 KM.Logger.PrintInfo("ShapeOpt", "Optimization problem converged within a relative objective tolerance of ",self.algorithm_settings["relative_tolerance"].GetDouble(),"%.")
                 return True
-
-    # --------------------------------------------------------------------------
+# ==============================================================================
     def __InitializeNewShape(self,total_iteration):
         self.model_part_controller.UpdateTimeStep(total_iteration)
 
@@ -498,7 +444,7 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
 
         self.model_part_controller.UpdateMeshAccordingInputVariable(KSO.SHAPE_UPDATE)
         self.model_part_controller.SetReferenceMeshToMesh()
-    # --------------------------------------------------------------------------
+# ==============================================================================
     def __InitializeLagrangeMultipliersAndPenalties(self,current_lambda_g,current_p_vect_ineq,current_lambda_h,current_p_vect_eq):
         for itr in range(self.number_ineq):
             current_lambda_g.append(0.0)
@@ -507,7 +453,7 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
             current_lambda_h.append(0.0)
             current_p_vect_eq.append(self.p)
         return current_lambda_g,current_p_vect_ineq,current_lambda_h,current_p_vect_eq
-    # --------------------------------------------------------------------------
+# ==============================================================================
     def __AnalyzeShape(self,total_iteration):
         self.communicator.initializeCommunication()
 
@@ -546,8 +492,7 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
             con_id=constraint["identifier"].GetString()
             gradient_variable = self.constraint_gradient_variables[con_id]["gradient"]
             self.model_part_controller.DampNodalVariableIfSpecified(gradient_variable)
-
-
+# ==============================================================================
     def __AreInitialConstraintFeasible(self,g_values,h_values):
         c_k=list()
         c_knext=list()
@@ -561,9 +506,8 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
         if self.number_eq >0:
             for itr in range(self.number_eq):
                 c_k_eq.append(max(h_values[itr],0))
-        return c_k,c_knext,c_k_eq,c_knext_eq
-      
-    # --------------------------------------------------------------------------
+        return c_k,c_knext,c_k_eq,c_knext_eq  
+# ==============================================================================
     def __Mapping(self):
         # Compute update in regular units
         self.mapper.Update()
@@ -574,14 +518,7 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
             gradient_contraint = self.constraint_gradient_variables[con_id]["gradient"]
             mapped_gradient_variable = self.constraint_gradient_variables[con_id]["mapped_gradient"]
             self.mapper.InverseMap(gradient_contraint, mapped_gradient_variable)
-
-    # --------------------------------------------------------------------------
-    def __LogCurrentOptimizationStep(self, additional_values_to_log):
-        self.data_logger.LogCurrentValues(self.opt_iteration, additional_values_to_log)
-        self.data_logger.LogCurrentDesign(self.opt_iteration)
-
-    # --------------------------------------------------------------------------
-  
+# ==============================================================================
     def __SeparateConstraints(self):
         equality_constraint_values = []
         equality_constraint_gradient = []
@@ -604,8 +541,7 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
 
 
         return inequality_constraint_values,inequality_constraint_gradient, equality_constraint_values,equality_constraint_gradient
-    
-
+# ==============================================================================   
     def __IdentifyNumberInequalities(self):
         for constraint in self.constraints:
             identifier = constraint["identifier"].GetString()
@@ -613,8 +549,7 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
                self.number_ineq+=1
             else:
                 self.number_eq+=1
-
-    # --------------------------------------------------------------------------
+# ==============================================================================
     def __InequalityConstraint(self, constraint):
         
         if constraint["type"].GetString() != "=":
@@ -622,8 +557,7 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
         else:
             return False
 # ==============================================================================
-
-    def __adjustStepSize(self,A,previous_A):
+    def __AdjustStepSize(self,previous_A):
         current_a = self.step_size
 
         # Compare actual and estimated improvement using linear information from the previos step
@@ -634,10 +568,10 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
             dfds1 = node.GetSolutionStepValue(KSO.DADX_MAPPED)
             dfda1 += s1[0]*dfds1[0] + s1[1]*dfds1[1] + s1[2]*dfds1[2]
 
-        f2 = A
+        f2 = self.A
         f1 = previous_A
 
-        df_actual = A - previous_A
+        df_actual = self.A - previous_A
         df_estimated = current_a*dfda1
 
         # Adjust step size if necessary
@@ -660,6 +594,19 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
             new_a = current_a-corrected_step_size
 
         self.step_size = new_a
-
-
-
+# ==============================================================================
+    def __LogCurrentOptimizationStep(self,outer_iteration,inner_iteration,
+                                                current_lambda_g,current_lambda_h,current_p_vect_ineq,current_p_vect_eq
+                                                ,total_iteration):
+       additional_values_to_log = {}
+       additional_values_to_log["step_size"] = self.step_size
+       additional_values_to_log["outer_iteration"] = outer_iteration
+       additional_values_to_log["inner_iteration"] = inner_iteration
+       additional_values_to_log["augmented_value"] = self.A
+       additional_values_to_log["augmented_value_relative_change"] = self.dA_relative
+       additional_values_to_log["current_lambda_inequalities"] = current_lambda_g
+       additional_values_to_log["current_lambda_equalities"] = current_lambda_h
+       additional_values_to_log["current_penalty_factor_inequalities"] = current_p_vect_ineq
+       additional_values_to_log["current_penalty_factor_equalities"] = current_p_vect_eq
+       self.data_logger.LogCurrentValues(total_iteration, additional_values_to_log)
+       self.data_logger.LogCurrentDesign(total_iteration)

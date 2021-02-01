@@ -38,12 +38,14 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
             "max_outer_iterations"    : 100,
             "max_inner_iterations"    : 50,
             "min_inner_iterations"    :  3,
+            "gamma"                   :  2.0,
+            "penalty_factor_initial"  : 1.0,
             "inner_iteration_tolerance"      : 1e-0,
             "line_search" : {
                 "line_search_type"           : "manual_stepping",
                 "normalize_search_direction" : true,
                 "step_size"                  : 1.0,
-                "estimation_tolerance"       : 0.01,
+                "estimation_tolerance"       : 0.1,
                 "increase_factor"            : 1.25,
                 "max_increase_factor"        : 3.0
             }
@@ -79,9 +81,9 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
         self.p_vect_eq_0=[]
         self.number_ineq=0
         self.number_eq=0
-        self.p=1.0e9#1387281818.0#1e9
+        self.p= self.algorithm_settings["penalty_factor_initial"].GetDouble()#1.0#1387281818.0#1e9
         self.pmax=1e+10*self.p
-        
+        self.gamma=self.algorithm_settings["gamma"].GetDouble()#10.0
 
         self.constraint_gradient_variables = {}
         for itr, constraint in enumerate(self.constraints):
@@ -129,78 +131,20 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
 
         self.mapper = mapper_factory.CreateMapper(self.design_surface, self.design_surface, self.mapper_settings)
         self.mapper.Initialize()
-        """
-        if self.filter_penalty_term:
-            penalty_filter_radius = self.algorithm_settings["penalty_filter_radius"].GetDouble()
-            filter_radius = self.mapper_settings["filter_radius"].GetDouble()
-            if abs(filter_radius - penalty_filter_radius) > 1e-9:
-                penalty_filter_settings = self.mapper_settings.Clone()
-                penalty_filter_settings["filter_radius"].SetDouble(self.algorithm_settings["penalty_filter_radius"].GetDouble())
-                self.penalty_filter = mapper_factory.CreateMapper(self.design_surface, self.design_surface, penalty_filter_settings)
-                self.penalty_filter.Initialize()
-            else:
-                self.penalty_filter = self.mapper
-        """
+    
 
         self.data_logger = data_logger_factory.CreateDataLogger(self.model_part_controller, self.communicator, self.optimization_settings)
         self.data_logger.InitializeDataLogging()
         #Activate all the optimization_utilities.h in custum utilities
         self.optimization_utilities = KSO.OptimizationUtilities(self.design_surface, self.optimization_settings)
 
-        #Bead optimization
-        """
-        # Identify fixed design areas
-        KM.VariableUtils().SetFlag(KM.BOUNDARY, False, self.optimization_model_part.Nodes)
-
-        radius = self.mapper_settings["filter_radius"].GetDouble()
-        search_based_functions = KSO.SearchBasedFunctions(self.design_surface)
-
-        for itr in range(self.algorithm_settings["fix_boundaries"].size()):
-            sub_model_part_name = self.algorithm_settings["fix_boundaries"][itr].GetString()
-            node_set = self.optimization_model_part.GetSubModelPart(sub_model_part_name).Nodes
-            search_based_functions.FlagNodesInRadius(node_set, KM.BOUNDARY, radius)
-
-        # Specify bounds and assign starting values for ALPHA
-        if self.bead_side == "positive":
-            KM.VariableUtils().SetScalarVar(KSO.ALPHA, 0.5, self.design_surface.Nodes, KM.BOUNDARY, False)
-            self.lower_bound = 0.0
-            self.upper_bound = 1.0
-        elif self.bead_side == "negative":
-            KM.VariableUtils().SetScalarVar(KSO.ALPHA, -0.5, self.design_surface.Nodes, KM.BOUNDARY, False)
-            self.lower_bound = -1.0
-            self.upper_bound = 0.0
-        elif self.bead_side == "both":
-            KM.VariableUtils().SetScalarVar(KSO.ALPHA, 0.0, self.design_surface.Nodes, KM.BOUNDARY, False)
-            self.lower_bound = -1.0
-            self.upper_bound = 1.0
-        else:
-            raise RuntimeError("Specified bead direction mode not supported!")
-
-        # Initialize ALPHA_MAPPED according to initial ALPHA values
-        self.mapper.Map(KSO.ALPHA, KSO.ALPHA_MAPPED)
-
-        # Specify bead direction
-        bead_direction = self.algorithm_settings["bead_direction"].GetVector()
-        if len(bead_direction) == 0:
-            self.model_part_controller.ComputeUnitSurfaceNormals()
-            for node in self.design_surface.Nodes:
-                normalized_normal = node.GetSolutionStepValue(KSO.NORMALIZED_SURFACE_NORMAL)
-                node.SetValue(KSO.BEAD_DIRECTION,normalized_normal)
-
-        elif len(bead_direction) == 3:
-            norm = math.sqrt(bead_direction[0]**2 + bead_direction[1]**2 + bead_direction[2]**2)
-            normalized_bead_direction = [value/norm for value in bead_direction]
-            KM.VariableUtils().SetNonHistoricalVectorVar(KSO.BEAD_DIRECTION, normalized_bead_direction, self.design_surface.Nodes)
-        else:
-            raise RuntimeError("Wrong definition of bead direction. Options are: 1) [] -> takes surface normal, 2) [x.x,x.x,x.x] -> takes specified vector.")
-
-        """
+       
 # ==============================================================================
     def RunOptimizationLoop(self):
         timer = Timer()
         timer.StartTimer()
         total_iteration=0
-        gamma=10.0
+        
         current_lambda_g=self.lambda_g_0
         current_lambda_h=self.lambda_h_0
         current_p_vect_ineq=self.p_vect_ineq_0
@@ -249,13 +193,21 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
                 g_gradient_vector_kratos.clear()
                 for itr in  range(len(g_gradient_variables)) :
                     g_gradient_vector_kratos.append( KM.Vector())
-                    gp_utilities.AssembleVector(g_gradient_vector_kratos[itr], g_gradient_variables[itr])  
+                    gp_utilities.AssembleVector(g_gradient_vector_kratos[itr], g_gradient_variables[itr])
+                    if(inner_iteration==1):
+                        scale_g=nabla_f.norm_2()/g_gradient_vector_kratos[itr].norm_2()
+                    g_values[itr]=(scale_g)*g_values[itr]  
                 
                 h_gradient_vector_kratos.clear()
                 for itr in  range(len(h_gradient_variables)):
                     h_gradient_vector_kratos.append( KM.Vector())
-                    gp_utilities.AssembleVector(h_gradient_vector_kratos[itr], h_gradient_variables[itr])  
-                
+                    gp_utilities.AssembleVector(h_gradient_vector_kratos[itr], h_gradient_variables[itr])
+                    if(inner_iteration==1):
+                        scale_h=nabla_f.norm_2()/h_gradient_vector_kratos[itr].norm_2()
+                        KM.Logger.Print("")
+                        KM.Logger.PrintInfo("ShapeOpt", "Scale h = ",  scale_h)
+                    h_values[itr]=(scale_h)*h_values[itr]
+
                 conditions_ineq=0.0   
                 if (inner_iteration==2 and outer_iteration==1) or (outer_iteration>1 and inner_iteration==1):
                     for itr in range(len(g_values)):
@@ -302,12 +254,12 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
                                 
                 for itr in range(len(g_gradient_variables)):
                     if flag_g1_inner==True:#g_values[itr]>(-1*current_lambda_g[itr])/(2*current_p_vect_ineq[itr]):
-                        conditions_grad_ineq_vector+=(current_lambda_g[itr]+2*current_p_vect_ineq[itr]*g_values[itr])*g_gradient_vector_kratos[itr]
+                        conditions_grad_ineq_vector+=(current_lambda_g[itr]*scale_g+2*current_p_vect_ineq[itr]*g_values[itr])*g_gradient_vector_kratos[itr]
                     else:
                         conditions_grad_ineq_vector+=conditions_grad_ineq_vector
                     
                 for itr in range(len(h_gradient_variables)):
-                    conditions_grad_eq_vector+=(current_lambda_h[itr]+2*current_p_vect_eq[itr]*h_values[itr])*h_gradient_vector_kratos[itr]#(current_lambda_h[itr]+2*current_p_vect_eq[itr]*h_values[itr])*h_gradient_vector_kratos[itr]
+                    conditions_grad_eq_vector+=(current_lambda_h[itr]*scale_h+2*current_p_vect_eq[itr]*h_values[itr])*h_gradient_vector_kratos[itr]#(current_lambda_h[itr]+2*current_p_vect_eq[itr]*h_values[itr])*h_gradient_vector_kratos[itr]
                 
                 dA_dX_mapped=nabla_f+conditions_grad_ineq_vector+conditions_grad_eq_vector   
                 search_direction_augmented=-1*dA_dX_mapped
@@ -351,7 +303,7 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
                     if current_p_vect_ineq[i]>=self.pmax:
                         current_p_vect_ineq[i]=self.pmax                        
                     else:
-                        current_p_vect_ineq[i]=gamma*current_p_vect_ineq[i]
+                        current_p_vect_ineq[i]=self.gamma*current_p_vect_ineq[i]
                 c_k=c_knext.copy()     
             
             if self.number_eq >0:
@@ -364,7 +316,7 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
                         if current_p_vect_eq[i]>=self.pmax:
                             current_p_vect_eq[i]=self.pmax                        
                         else:
-                            current_p_vect_eq[i]=gamma*current_p_vect_eq[i]                      
+                            current_p_vect_eq[i]=self.gamma*current_p_vect_eq[i]                      
                 c_k_eq=c_knext_eq.copy()
 
             # Update lambda
@@ -377,6 +329,7 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
             
             for itr in range(len(h_values)):
                 current_lambda_h[itr]=current_lambda_h[itr]+2*current_p_vect_eq[itr]*h_values[itr]
+
 
 
 

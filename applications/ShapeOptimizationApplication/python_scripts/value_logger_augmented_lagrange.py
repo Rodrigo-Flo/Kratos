@@ -121,7 +121,7 @@ class ValueLoggerAugmentedLagrange( ValueLogger ):
 
 
 
-            row.append(" {:> .5E}".format(self.history["step_size"][self.current_index]))
+            row.append(" {:> .7E}".format(self.history["step_size"][self.current_index]))
             row.append("{:>25}".format(Timer().GetTimeStamp()))
             historyWriter.writerow(row)
 

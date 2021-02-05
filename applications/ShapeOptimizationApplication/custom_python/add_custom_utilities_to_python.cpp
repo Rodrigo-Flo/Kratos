@@ -164,6 +164,8 @@ void  AddCustomUtilitiesToPython(pybind11::module& m)
         .def("CorrectProjectedSearchDirection", &OptimizationUtilities::CorrectProjectedSearchDirection)
         .def("GetCorrectionScaling", &OptimizationUtilities::GetCorrectionScaling)
         // ----------------------------------------------------------------
+        // For running augmented lagrange algorithm
+        .def("CalculateStepSize_BB",&OptimizationUtilities::CalculateStepSize_BB)
         // General optimization operations
         // ----------------------------------------------------------------
         .def("ComputeControlPointUpdate", &OptimizationUtilities::ComputeControlPointUpdate)

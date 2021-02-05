@@ -427,6 +427,32 @@ public:
     }
     // ==============================================================================
 
+
+     /**
+     * Calculate the projection of the objective gradient into the subspace tangent to
+     * the active constraint gradients.
+     * In a second step, calculate the restoration move accounting for the current violation of the constraints.
+     * Variable naming and implementation based on https://msulaiman.org/onewebmedia/GradProj_2.pdf
+     */
+    double CalculateStepSize_BB(
+        Vector& rAugmentedCurrentGradient,
+        Vector& rAugmentedPreviousGradient,
+        double& StepSize
+        )
+    {
+        // local variable naming according to https://msulaiman.org/onewebmedia/GradProj_2.pdf
+        Vector g_k = rAugmentedCurrentGradient;
+        Vector g_k_previous = rAugmentedPreviousGradient;
+        double step_size= StepSize;
+        Vector d= g_k_previous*(-1/step_size);
+        Vector y= g_k-g_k_previous;
+        //step_size=(trans(d)*y)/(trans(d)*d);
+        step_size=(inner_prod(d,y))/(inner_prod(d,d));
+        return step_size;
+        
+    }
+    // ==============================================================================
+
     ///@}
     ///@name Access
     ///@{

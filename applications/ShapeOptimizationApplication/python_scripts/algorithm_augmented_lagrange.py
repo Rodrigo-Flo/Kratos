@@ -164,6 +164,7 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
         
         for outer_iteration in range(1,self.max_outer_iterations+1):           
             flag_g1_inner.clear()
+            n1=0
             for inner_iteration in range(1,self.max_inner_iterations+1):
                 total_iteration += 1
 
@@ -200,8 +201,8 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
                     g_gradient_vector_kratos.append( KM.Vector())
                     gp_utilities.AssembleVector(g_gradient_vector_kratos[itr], g_gradient_variables[itr])
                     if(inner_iteration==1): 
-                        if g_gradient_vector_kratos[itr].norm_2()!=0.0:
-                            scale_g_vector.append(nabla_f.norm_2()/g_gradient_vector_kratos[itr].norm_2())
+                        if g_gradient_vector_kratos[itr].norm_inf() !=0.0:
+                            scale_g_vector.append(nabla_f.norm_inf()/g_gradient_vector_kratos[itr].norm_inf())
                             KM.Logger.Print("")
                             KM.Logger.PrintInfo("ShapeOpt", "Scale g = ",  scale_g_vector[itr])
                         else:
@@ -216,8 +217,8 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
                     gp_utilities.AssembleVector(h_gradient_vector_kratos[itr], h_gradient_variables[itr])
                     if(inner_iteration==1):
                         scale_h_vector.clear()
-                        if h_gradient_vector_kratos[itr].norm_2()!=0.0:
-                            scale_h_vector.append(nabla_f.norm_2()/h_gradient_vector_kratos[itr].norm_2())
+                        if h_gradient_vector_kratos[itr].norm_inf()!=0.0:
+                            scale_h_vector.append(nabla_f.norm_inf()/h_gradient_vector_kratos[itr].norm_inf())
                             KM.Logger.Print("")
                             KM.Logger.PrintInfo("ShapeOpt", "Scale h = ",  scale_h_vector[itr])
                         else:
@@ -225,7 +226,8 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
                     h_values[itr]=(scale_h_vector[itr])*h_values[itr]
 
                 conditions_ineq=0.0   
-                if (inner_iteration==2 and outer_iteration==1) or (outer_iteration>1 and inner_iteration==1):
+                """
+                if (inner_iteration==1 and outer_iteration==1) or (inner_iteration==1 and outer_iteration>1):
                     for itr in range(len(g_values)):
                         if g_values[itr]>(-1*current_lambda_g[itr])/(2*current_p_vect_ineq[itr]):
                             conditions_ineq+=current_lambda_g[itr]*g_values[itr]+current_p_vect_ineq[itr]*g_values[itr]**2
@@ -233,13 +235,13 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
                         else:
                             conditions_ineq+=(-1)*(current_lambda_g[itr])**2/(4*current_p_vect_ineq[itr])
                             flag_g1_inner.append(False)
-                                                
-                elif (inner_iteration>2 and outer_iteration==1) or (inner_iteration>1 and outer_iteration>1):
-                    for itr in range(len(g_values)):
-                        if flag_g1_inner[itr]==True:
-                            conditions_ineq+=current_lambda_g[itr]*g_values[itr]+current_p_vect_ineq[itr]*g_values[itr]**2
-                        else:
-                            conditions_ineq+=(-1)*(current_lambda_g[itr])**2/(4*current_p_vect_ineq[itr])
+                """                               
+                #elif (inner_iteration>1 and outer_iteration==1) or (inner_iteration>1 and outer_iteration>1):
+                for itr in range(len(g_values)):
+                    if g_values[itr]>(-1*current_lambda_g[itr])/(2*current_p_vect_ineq[itr]):#if flag_g1_inner[itr]==True:
+                        conditions_ineq+=current_lambda_g[itr]*g_values[itr]+current_p_vect_ineq[itr]*g_values[itr]**2
+                    else:
+                        conditions_ineq+=(-1)*(current_lambda_g[itr])**2/(4*current_p_vect_ineq[itr])
                             
 
                 conditions_eq=0.0
@@ -249,8 +251,8 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
 
                 A=objective_value+conditions_ineq+conditions_eq
                 self.A=A
-                if self.line_search_type == "adaptive_stepping" and total_iteration > 1:
-                   self.__AdjustStepSize(previous_A)
+                #if self.line_search_type == "adaptive_stepping" and total_iteration > 1:
+                #   self.__AdjustStepSize(previous_A)
                 
                 if inner_iteration ==1 :
                     A_init_inner=A
@@ -269,11 +271,11 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
                 conditions_grad_eq_vector.fill(0.0)
                                 
                 for itr in range(len(g_gradient_variables)):
-                   if total_iteration>1:
-                        if flag_g1_inner[itr]==True:#g_values[itr]>(-1*current_lambda_g[itr])/(2*current_p_vect_ineq[itr]):
-                            conditions_grad_ineq_vector+=(current_lambda_g[itr]*scale_g_vector[itr]+2*current_p_vect_ineq[itr]*g_values[itr])*g_gradient_vector_kratos[itr]
-                        else:
-                            conditions_grad_ineq_vector+=conditions_grad_ineq_vector
+                   #if total_iteration>1:
+                    if g_values[itr]>(-1*current_lambda_g[itr])/(2*current_p_vect_ineq[itr]):#if flag_g1_inner[itr]==True:#
+                        conditions_grad_ineq_vector+=(current_lambda_g[itr]*scale_g_vector[itr]+2*current_p_vect_ineq[itr]*g_values[itr])*g_gradient_vector_kratos[itr]
+                    else:
+                        conditions_grad_ineq_vector+=conditions_grad_ineq_vector
                     
                 for itr in range(len(h_gradient_variables)):
                     conditions_grad_eq_vector+=(current_lambda_h[itr]*scale_h_vector[itr]+2*current_p_vect_eq[itr]*h_values[itr])*h_gradient_vector_kratos[itr]#(current_lambda_h[itr]+2*current_p_vect_eq[itr]*h_values[itr])*h_gradient_vector_kratos[itr]
@@ -283,7 +285,11 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
                 gp_utilities.AssignVectorToVariable(search_direction_augmented, KSO.SEARCH_DIRECTION)
                 gp_utilities.AssignVectorToVariable(dA_dX_mapped,KSO.DADX_MAPPED)
                 
-                self.optimization_utilities.ComputeControlPointUpdate(self.step_size)
+                if total_iteration>1:
+                    self.step_size=gp_utilities.CalculateStepSize_BB(dA_dX_mapped,dA_dX_mapped_previous,self.step_size)
+
+                dA_dX_mapped_previous=dA_dX_mapped
+                self.optimization_utilities.ComputeControlPointUpdate(1/self.step_size)
                 self.mapper.Map(KSO.CONTROL_POINT_UPDATE, KSO.SHAPE_UPDATE)
                 self.model_part_controller.DampNodalVariableIfSpecified(KSO.SHAPE_UPDATE)
                 self.dA_relative=dA_relative
@@ -299,15 +305,12 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
                 if total_iteration == self.max_total_iterations:
                     is_max_total_iterations_reached = True
                     break
-
-                if inner_iteration >= self.min_inner_iterations and inner_iteration >1:
+                if inner_iteration >1:
                     # In the first outer iteration, the constraint is not yet active and properly scaled. Therefore, the objective is used to check the relative improvement
-                    if outer_iteration == 1:
-                        if abs(self.data_logger.GetValues("rel_change_objective")[total_iteration]) < self.inner_iteration_tolerance:
-                            break
-                    else:
-                        if abs(dA_relative) < self.inner_iteration_tolerance:
-                            break
+                
+                    if abs(dA_relative) < self.inner_iteration_tolerance and n1==2:
+                        n1+=1
+                        break
 
             #Update penalty factor vector
             if self.number_ineq >0:
@@ -530,6 +533,45 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
             return False
 # ==============================================================================
     def __AdjustStepSize(self,previous_A):
+        current_a = self.step_size
+
+        # Compare actual and estimated improvement using linear information from the previos step
+        dfda1 = 0.0
+        for node in self.design_surface.Nodes:
+            # The following variables are not yet updated and therefore contain the information from the previos step
+            s1 = node.GetSolutionStepValue(KSO.SEARCH_DIRECTION)
+            dfds1 = node.GetSolutionStepValue(KSO.DADX_MAPPED)
+            dfda1 += s1[0]*dfds1[0] + s1[1]*dfds1[1] + s1[2]*dfds1[2]
+
+        f2 = self.A
+        f1 = previous_A
+
+        df_actual = self.A - previous_A
+        df_estimated = current_a*dfda1
+
+        # Adjust step size if necessary
+        if f2 < f1:
+            estimation_error = (df_actual-df_estimated)/df_actual
+
+            # Increase step size if estimation based on linear extrapolation matches the actual improvement within a specified tolerance
+            if abs(estimation_error) < self.estimation_tolerance:
+                new_a = min(current_a*self.increase_factor, self.max_step_size)
+
+            # Leave step size unchanged if a nonliner change in the objective is observed but still a descent direction is obtained
+            else:
+                new_a = current_a
+        else:
+            # Search approximation of optimal step using interpolation
+            a = current_a
+            corrected_step_size = - 0.5 * dfda1 * a**2 / (f2 - f1 - dfda1 * a )
+
+            # Starting from the new design, and assuming an opposite gradient direction, the step size to the approximated optimum behaves reciprocal
+            new_a = current_a-corrected_step_size
+
+        self.step_size = new_a
+
+# ==============================================================================
+    def __AdjustStepSize_BB(self,previous_A):
         current_a = self.step_size
 
         # Compare actual and estimated improvement using linear information from the previos step

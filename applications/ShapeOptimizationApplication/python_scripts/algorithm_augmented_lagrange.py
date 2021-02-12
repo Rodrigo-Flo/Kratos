@@ -308,8 +308,10 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
                 if inner_iteration >1:
                     # In the first outer iteration, the constraint is not yet active and properly scaled. Therefore, the objective is used to check the relative improvement
                 
-                    if abs(dA_relative) < self.inner_iteration_tolerance and n1==2:
+                    if abs(dA_relative) < self.inner_iteration_tolerance:
                         n1+=1
+                    
+                    if n1==2:
                         break
 
             #Update penalty factor vector
@@ -419,6 +421,15 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
         self.model_part_controller.SetReferenceMeshToMesh()
 # ==============================================================================
     def __InitializeLagrangeMultipliersAndPenalties(self,current_lambda_g,current_p_vect_ineq,current_lambda_h,current_p_vect_eq):
+        for itr in range(self.number_ineq):
+            current_lambda_g.append(0.0)
+            current_p_vect_ineq.append(self.p)
+        for itr in range(self.number_eq):
+            current_lambda_h.append(0.0)
+            current_p_vect_eq.append(self.p)
+        return current_lambda_g,current_p_vect_ineq,current_lambda_h,current_p_vect_eq
+# ==============================================================================
+    def __InitializeLagrangeMultipliersAndPenalties_2(self,current_lambda_g,current_p_vect_ineq,current_lambda_h,current_p_vect_eq):
         for itr in range(self.number_ineq):
             current_lambda_g.append(0.0)
             current_p_vect_ineq.append(self.p)

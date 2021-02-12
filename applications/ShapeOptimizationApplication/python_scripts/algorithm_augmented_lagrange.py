@@ -429,7 +429,7 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
             current_p_vect_eq.append(self.p)
         return current_lambda_g,current_p_vect_ineq,current_lambda_h,current_p_vect_eq
 # ==============================================================================
-    def __InitializeLagrangeMultipliersAndPenalties_2(self,current_lambda_g,current_p_vect_ineq,current_lambda_h,current_p_vect_eq):
+    def __InitializeLagrangeMultipliersAndPenalties_3(self,current_lambda_g,current_p_vect_ineq,current_lambda_h,current_p_vect_eq):
         for itr in range(self.number_ineq):
             current_lambda_g.append(0.0)
             current_p_vect_ineq.append(self.p)

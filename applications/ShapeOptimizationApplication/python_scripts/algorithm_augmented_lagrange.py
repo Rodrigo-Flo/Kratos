@@ -259,7 +259,11 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
                 self.A=A
                 #if self.line_search_type == "adaptive_stepping" and total_iteration > 1:
                 #   self.__AdjustStepSize(previous_A)
-                
+                if inner_iteration == 1 and total_iteration==1:
+                    dA_relative = 0.0
+                else:
+                    dA_relative = 100*(1-(previous_A/A))
+                self.dA_relative=dA_relative
                 if inner_iteration ==1 :
                     if total_iteration>1:
                         relative_tolerance_outer=100.0*(abs(A-A_init_inner)/abs(A))
@@ -267,14 +271,15 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
                         if relative_tolerance_outer<=self.inner_iteration_tolerance:
                             KM.Logger.Print("")
                             KM.Logger.PrintInfo("ShapeOpt","Optimization problem converged within a relative objective tolerance of",relative_tolerance_outer,self.inner_iteration_tolerance,"%.")
+                            print("holi: ",A)
+                            self.__LogCurrentOptimizationStep(outer_iteration,inner_iteration,
+                                                current_lambda_g,current_lambda_h,current_p_vect_ineq,current_p_vect_eq,
+                                                total_iteration)
                             exit_flag=True
                             break
-                A_init_inner=A
+                    A_init_inner=A
                                 
-                if inner_iteration == 1 and total_iteration==1:
-                    dA_relative = 0.0
-                else:
-                    dA_relative = 100*(1-(previous_A/A))
+
                
                 conditions_grad_ineq_vector=KM.Vector()
                 conditions_grad_ineq_vector.Resize(nabla_f.Size())
@@ -306,7 +311,7 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
                 self.optimization_utilities.ComputeControlPointUpdate(1/self.step_size)
                 self.mapper.Map(KSO.CONTROL_POINT_UPDATE, KSO.SHAPE_UPDATE)
                 self.model_part_controller.DampNodalVariableIfSpecified(KSO.SHAPE_UPDATE)
-                self.dA_relative=dA_relative
+                
                 self.__LogCurrentOptimizationStep(outer_iteration,inner_iteration,
                                                 current_lambda_g,current_lambda_h,current_p_vect_ineq,current_p_vect_eq,
                                                 total_iteration)
@@ -328,7 +333,7 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
                     if n1==2:
                         break
 
-             # Update lambda
+            # Update lambda
             
             for itr in range(len(g_values)):
                 if g_values[itr]>(-1*current_lambda_g[itr])/(2*current_p_vect_ineq[itr]):
@@ -337,9 +342,7 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
                     current_lambda_g[itr]=0.0
             
             for itr in range(len(h_values)):
-                current_lambda_h[itr]=current_lambda_h[itr]+2*current_p_vect_eq[itr]*h_values[itr]           
-            
-            
+                current_lambda_h[itr]=current_lambda_h[itr]+2*current_p_vect_eq[itr]*h_values[itr]            
             #Update penalty factor vector
             if self.number_ineq >0:
                 c_knext.clear()
@@ -366,6 +369,8 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
                         else:
                             current_p_vect_eq[i]=self.gamma*current_p_vect_eq[i]                      
                 c_k_eq=c_knext_eq.copy()
+
+                      
 
 
 
@@ -455,15 +460,26 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
     def __Scale_Penalties(self,objective_value,g_values,h_values):
         current_p_vect_ineq=[]
         current_p_vect_eq=[]
+        p=0.0
         for itr in range(self.number_ineq):
-            #current_lambda_g.append(0.0)
-            if g_values[itr]>0.0:
-                current_p_vect_ineq.append(abs(objective_value)/(g_values[itr]**2))
-            else:
-                current_p_vect_ineq.append(abs(objective_value)/(1.0**2))
+            p+=(max(0,g_values[itr]))**2
         for itr in range(self.number_eq):
-            #current_lambda_h.append(0.0)
-            current_p_vect_eq.append(abs(objective_value)/(h_values[itr]**2))
+            p+=(h_values[itr])**2
+        
+        if p>0.0:
+            for itr in range(self.number_ineq):
+                current_p_vect_ineq.append(abs(objective_value)/p)
+        else:
+            for itr in range(self.number_ineq):
+                current_p_vect_ineq.append(1.0)
+
+        if p>0.0:
+            for itr in range(self.number_eq):
+                current_p_vect_eq.append(abs(objective_value)/p)
+        else:
+            for itr in range(self.number_eq):
+                current_p_vect_eq.append(1.0)
+
         return current_p_vect_ineq,current_p_vect_eq
 # ==============================================================================
     def __AnalyzeShape(self,total_iteration):

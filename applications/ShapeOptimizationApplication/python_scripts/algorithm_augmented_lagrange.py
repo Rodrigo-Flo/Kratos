@@ -188,9 +188,10 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
                 if (inner_iteration==2 and outer_iteration==1):
                     c_k,c_knext,c_k_eq,c_knext_eq=self.__AreInitialConstraintFeasible(g_values,h_values)
                 
+                """
                 if (total_iteration==2):
                     current_p_vect_ineq,current_p_vect_eq=self.__Scale_Penalties(objective_value,g_values,h_values)
-                
+                """
                 KM.Logger.PrintInfo("ShapeOpt", "Assemble vector of objective gradient.")
                 nabla_f = KM.Vector()
                 gp_utilities.AssembleVector(nabla_f, KSO.DF1DX_MAPPED)
@@ -204,7 +205,7 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
                 for itr in  range(len(g_gradient_variables)) :
                     g_gradient_vector_kratos.append( KM.Vector())
                     gp_utilities.AssembleVector(g_gradient_vector_kratos[itr], g_gradient_variables[itr])
-                    """
+                    
                     if(inner_iteration==1): 
                         if g_gradient_vector_kratos[itr].norm_inf() !=0.0:
                             scale_g_vector.append(nabla_f.norm_inf()/g_gradient_vector_kratos[itr].norm_inf())
@@ -215,12 +216,12 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
                             KM.Logger.Print("")
                             KM.Logger.PrintInfo("ShapeOpt", "Scale g = ",  scale_g_vector[itr])
                     g_values[itr]=(scale_g_vector[itr])*g_values[itr]  
-                    """
+                    
                 h_gradient_vector_kratos.clear()
                 for itr in  range(len(h_gradient_variables)):
                     h_gradient_vector_kratos.append( KM.Vector())
                     gp_utilities.AssembleVector(h_gradient_vector_kratos[itr], h_gradient_variables[itr])
-                    """
+                    
                     if(inner_iteration==1):
                         scale_h_vector.clear()
                         if h_gradient_vector_kratos[itr].norm_inf()!=0.0:
@@ -230,7 +231,7 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
                         else:
                             scale_h_vector.append(1.0)
                     h_values[itr]=(scale_h_vector[itr])*h_values[itr]
-                    """
+                    
                 conditions_ineq=0.0   
                 """
                 if (inner_iteration==1 and outer_iteration==1) or (inner_iteration==1 and outer_iteration>1):
@@ -292,12 +293,12 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
                 for itr in range(len(g_gradient_variables)):
                    #if total_iteration>1:
                     if g_values[itr]>(-1*current_lambda_g[itr])/(2*current_p_vect_ineq[itr]):#if flag_g1_inner[itr]==True:#
-                        conditions_grad_ineq_vector+=(current_lambda_g[itr]*1+2*current_p_vect_ineq[itr]*g_values[itr])*g_gradient_vector_kratos[itr]
+                        conditions_grad_ineq_vector+=(current_lambda_g[itr]*scale_g_vector[itr]+2*current_p_vect_ineq[itr]*g_values[itr])*g_gradient_vector_kratos[itr]
                     else:
                         conditions_grad_ineq_vector+=conditions_grad_ineq_vector
                     
                 for itr in range(len(h_gradient_variables)):
-                    conditions_grad_eq_vector+=(current_lambda_h[itr]*1+2*current_p_vect_eq[itr]*h_values[itr])*h_gradient_vector_kratos[itr]#(current_lambda_h[itr]+2*current_p_vect_eq[itr]*h_values[itr])*h_gradient_vector_kratos[itr]
+                    conditions_grad_eq_vector+=(current_lambda_h[itr]*scale_g_vector[itr]+2*current_p_vect_eq[itr]*h_values[itr])*h_gradient_vector_kratos[itr]#(current_lambda_h[itr]+2*current_p_vect_eq[itr]*h_values[itr])*h_gradient_vector_kratos[itr]
                 
                 dA_dX_mapped=nabla_f+conditions_grad_ineq_vector+conditions_grad_eq_vector   
                 search_direction_augmented=-1*dA_dX_mapped
@@ -624,45 +625,7 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
             new_a = current_a-corrected_step_size
 
         self.step_size = new_a
-
-# ==============================================================================
-    def __AdjustStepSize_BB(self,previous_A):
-        current_a = self.step_size
-
-        # Compare actual and estimated improvement using linear information from the previos step
-        dfda1 = 0.0
-        for node in self.design_surface.Nodes:
-            # The following variables are not yet updated and therefore contain the information from the previos step
-            s1 = node.GetSolutionStepValue(KSO.SEARCH_DIRECTION)
-            dfds1 = node.GetSolutionStepValue(KSO.DADX_MAPPED)
-            dfda1 += s1[0]*dfds1[0] + s1[1]*dfds1[1] + s1[2]*dfds1[2]
-
-        f2 = self.A
-        f1 = previous_A
-
-        df_actual = self.A - previous_A
-        df_estimated = current_a*dfda1
-
-        # Adjust step size if necessary
-        if f2 < f1:
-            estimation_error = (df_actual-df_estimated)/df_actual
-
-            # Increase step size if estimation based on linear extrapolation matches the actual improvement within a specified tolerance
-            if abs(estimation_error) < self.estimation_tolerance:
-                new_a = min(current_a*self.increase_factor, self.max_step_size)
-
-            # Leave step size unchanged if a nonliner change in the objective is observed but still a descent direction is obtained
-            else:
-                new_a = current_a
-        else:
-            # Search approximation of optimal step using interpolation
-            a = current_a
-            corrected_step_size = - 0.5 * dfda1 * a**2 / (f2 - f1 - dfda1 * a )
-
-            # Starting from the new design, and assuming an opposite gradient direction, the step size to the approximated optimum behaves reciprocal
-            new_a = current_a-corrected_step_size
-
-        self.step_size = new_a
+    
 # ==============================================================================
     def __LogCurrentOptimizationStep(self,outer_iteration,inner_iteration,
                                                 current_lambda_g,current_lambda_h,current_p_vect_ineq,current_p_vect_eq

@@ -99,7 +99,7 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
         self.step_size = self.algorithm_settings["line_search"]["step_size"].GetDouble()
         self.line_search_type = self.algorithm_settings["line_search"]["line_search_type"].GetString()
         self.increase_factor = self.algorithm_settings["line_search"]["increase_factor"].GetDouble()
-        self.max_step_size = self.step_size*self.algorithm_settings["line_search"]["max_increase_factor"].GetDouble()
+        self.max_step_size = self.step_size#*self.algorithm_settings["line_search"]["max_increase_factor"].GetDouble()
       
         self.max_total_iterations = self.algorithm_settings["max_total_iterations"].GetInt()
         self.max_outer_iterations = self.algorithm_settings["max_outer_iterations"].GetInt()
@@ -160,12 +160,12 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
         
         is_design_converged = False
         is_max_total_iterations_reached = False
-        flag_g1_inner=[]
-        exit_flag=False
-        for outer_iteration in range(1,self.max_outer_iterations+1):           
-            flag_g1_inner.clear()
+        outer_iteration=1
+        n1_outer_absolute=0
+        n2_outer_relative=0
+        while is_design_converged==False: 
+            #for outer_iteration in range(1,self.max_outer_iterations+1):           
             n1=0
-            
             for inner_iteration in range(1,self.max_inner_iterations+1):
                 total_iteration += 1
 
@@ -185,8 +185,7 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
                 objective_value = self.communicator.getStandardizedValue(self.objectives[0]["identifier"].GetString())      
                 g_values,g_gradient_variables,h_values,h_gradient_variables=self.__SeparateConstraints()
                 
-                if (inner_iteration==2 and outer_iteration==1):
-                    c_k,c_knext,c_k_eq,c_knext_eq=self.__AreInitialConstraintFeasible(g_values,h_values)
+
                 
                 """
                 if (total_iteration==2):
@@ -231,57 +230,91 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
                         else:
                             scale_h_vector.append(1.0)
                     h_values[itr]=(scale_h_vector[itr])*h_values[itr]
+                
+                if (inner_iteration==2 and outer_iteration==1):
+                    c_k,c_knext,c_k_eq,c_knext_eq=self.__AreInitialConstraintFeasible(g_values,h_values)
+             #----------------------------------------------------------------------------------------------------#
+                
+                if (inner_iteration==1 and outer_iteration>1):  
+                    #Update penalty factor vector
+                    if self.number_ineq >0:
+                        c_knext.clear()
+                        for i in range (self.number_ineq):
+                            c_knext.append(max(g_values[i],0))
+                                    
+                        for i in range (len(c_knext)):
+                            if  not abs(c_knext[i])<=((1/4)*abs(c_k[i])):
+                                if current_p_vect_ineq[i]>=self.pmax:
+                                    current_p_vect_ineq[i]=self.pmax                        
+                                else:
+                                    current_p_vect_ineq[i]=self.gamma*current_p_vect_ineq[i]
+                        c_k=c_knext.copy()     
+                
+                    if self.number_eq >0:
+                        c_knext_eq.clear()
+                        for i in range(self.number_eq):    
+                            c_knext_eq.append(max(h_values[i],0))
                     
-                conditions_ineq=0.0   
-                """
-                if (inner_iteration==1 and outer_iteration==1) or (inner_iteration==1 and outer_iteration>1):
+                        for i in range (len(c_knext_eq)):
+                            if  not abs(c_knext_eq[i])<=((1/4)*abs(c_k_eq[i])):
+                                if current_p_vect_eq[i]>=self.pmax:
+                                    current_p_vect_eq[i]=self.pmax                        
+                                else:
+                                    current_p_vect_eq[i]=self.gamma*current_p_vect_eq[i]                      
+                        c_k_eq=c_knext_eq.copy()    
+
+                    # Update lambda
                     for itr in range(len(g_values)):
                         if g_values[itr]>(-1*current_lambda_g[itr])/(2*current_p_vect_ineq[itr]):
-                            conditions_ineq+=current_lambda_g[itr]*g_values[itr]+current_p_vect_ineq[itr]*g_values[itr]**2
-                            flag_g1_inner.append(True)
+                            current_lambda_g[itr]=current_lambda_g[itr]+2*current_p_vect_ineq[itr]*g_values[itr]
                         else:
-                            conditions_ineq+=(-1)*(current_lambda_g[itr])**2/(4*current_p_vect_ineq[itr])
-                            flag_g1_inner.append(False)
-                """                               
-                #elif (inner_iteration>1 and outer_iteration==1) or (inner_iteration>1 and outer_iteration>1):
+                            current_lambda_g[itr]=0.0
+                
+                    for itr in range(len(h_values)):
+                        current_lambda_h[itr]=current_lambda_h[itr]+2*current_p_vect_eq[itr]*h_values[itr]     
+
+
+                
+
+                
+
+                conditions_ineq=0.0                             
                 for itr in range(len(g_values)):
-                    if g_values[itr]>(-1*current_lambda_g[itr])/(2*current_p_vect_ineq[itr]):#if flag_g1_inner[itr]==True:
+                    if g_values[itr]>(-1*current_lambda_g[itr])/(2*current_p_vect_ineq[itr]):
                         conditions_ineq+=current_lambda_g[itr]*g_values[itr]+current_p_vect_ineq[itr]*g_values[itr]**2
                     else:
                         conditions_ineq+=(-1)*(current_lambda_g[itr])**2/(4*current_p_vect_ineq[itr])
                             
-
                 conditions_eq=0.0
                 for itr in range(len(h_values)):
                     conditions_eq+=current_lambda_h[itr]*h_values[itr]+current_p_vect_eq[itr]*h_values[itr]**2
                 
 
                 A=objective_value+conditions_ineq+conditions_eq
-                self.A=A
+                self.A=A#Used by the AdjustStepSize Function
+                
                 #if self.line_search_type == "adaptive_stepping" and total_iteration > 1:
                 #   self.__AdjustStepSize(previous_A)
-                if inner_iteration == 1 and total_iteration==1:
+                
+                if total_iteration==1:
                     dA_relative = 0.0
                 else:
-                    dA_relative = 100*(1-(previous_A/A))
-                self.dA_relative=dA_relative
-                if inner_iteration ==1 :
+                    dA_relative = 100*(1-(previous_A/A)) 
+                self.dA_relative=dA_relative#Used by the Log Information
+
+                if inner_iteration ==1:
                     if total_iteration>1:
-                        relative_tolerance_outer=100.0*(abs(A-A_init_inner)/abs(A))
-                        KM.Logger.Print("Relative outer tolerance ",relative_tolerance_outer)
-                        if relative_tolerance_outer<=self.inner_iteration_tolerance:
+                        is_design_converged,n1_outer_absolute,n2_outer_relative=self.__CheckConvergence(A,A_init_inner,outer_iteration,n1_outer_absolute,n2_outer_relative,
+                        0.0001,self.inner_iteration_tolerance,self.max_outer_iterations,"outer",n_iteration_1=1,n_iteration_2=2,)
+                        if is_design_converged: 
                             KM.Logger.Print("")
-                            KM.Logger.PrintInfo("ShapeOpt","Optimization problem converged within a relative objective tolerance of",relative_tolerance_outer,self.inner_iteration_tolerance,"%.")
-                            print("holi: ",A)
                             self.__LogCurrentOptimizationStep(outer_iteration,inner_iteration,
                                                 current_lambda_g,current_lambda_h,current_p_vect_ineq,current_p_vect_eq,
                                                 total_iteration)
-                            exit_flag=True
                             break
                     A_init_inner=A
                                 
 
-               
                 conditions_grad_ineq_vector=KM.Vector()
                 conditions_grad_ineq_vector.Resize(nabla_f.Size())
                 conditions_grad_ineq_vector.fill(0.0)
@@ -291,8 +324,7 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
                 conditions_grad_eq_vector.fill(0.0)
                                 
                 for itr in range(len(g_gradient_variables)):
-                   #if total_iteration>1:
-                    if g_values[itr]>(-1*current_lambda_g[itr])/(2*current_p_vect_ineq[itr]):#if flag_g1_inner[itr]==True:#
+                    if g_values[itr]>(-1*current_lambda_g[itr])/(2*current_p_vect_ineq[itr]):
                         conditions_grad_ineq_vector+=(current_lambda_g[itr]*scale_g_vector[itr]+2*current_p_vect_ineq[itr]*g_values[itr])*g_gradient_vector_kratos[itr]
                     else:
                         conditions_grad_ineq_vector+=conditions_grad_ineq_vector
@@ -307,6 +339,8 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
                 
                 if total_iteration>1:
                     self.step_size=gp_utilities.CalculateStepSize_BB(dA_dX_mapped,dA_dX_mapped_previous,self.step_size)
+                    #if self.step_size<self.max_step_size*0.25:
+                    #    self.step_size=self.max_step_size*0.25
 
                 dA_dX_mapped_previous=dA_dX_mapped
                 self.optimization_utilities.ComputeControlPointUpdate(1/self.step_size)
@@ -322,114 +356,75 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
                 
                 previous_A=A
     	        # Convergence check of inner loop
+                
                 if total_iteration == self.max_total_iterations:
                     is_max_total_iterations_reached = True
                     break
-                if inner_iteration >1:
-                    # In the first outer iteration, the constraint is not yet active and properly scaled. Therefore, the objective is used to check the relative improvement
-                
+                if inner_iteration >1:            
                     if abs(dA_relative) < self.inner_iteration_tolerance:
                         n1+=1
-                    
                     if n1==2:
                         break
 
-            # Update lambda
             
-            for itr in range(len(g_values)):
-                if g_values[itr]>(-1*current_lambda_g[itr])/(2*current_p_vect_ineq[itr]):
-                    current_lambda_g[itr]=current_lambda_g[itr]+2*current_p_vect_ineq[itr]*g_values[itr]
-                else:
-                    current_lambda_g[itr]=0.0
+            outer_iteration+=1
             
-            for itr in range(len(h_values)):
-                current_lambda_h[itr]=current_lambda_h[itr]+2*current_p_vect_eq[itr]*h_values[itr]            
-            #Update penalty factor vector
-            if self.number_ineq >0:
-                c_knext.clear()
-                for i in range (self.number_ineq):
-                    c_knext.append(max(g_values[i],0))
-                                
-                for i in range (len(c_knext)):
-                    if  not abs(c_knext[i])<=((1/4)*abs(c_k[i])):
-                        if current_p_vect_ineq[i]>=self.pmax:
-                            current_p_vect_ineq[i]=self.pmax                        
-                        else:
-                            current_p_vect_ineq[i]=self.gamma*current_p_vect_ineq[i]
-                c_k=c_knext.copy()     
-            
-            if self.number_eq >0:
-                c_knext_eq.clear()
-                for i in range(self.number_eq):    
-                    c_knext_eq.append(max(h_values[i],0))
-                
-                for i in range (len(c_knext_eq)):
-                    if  not abs(c_knext_eq[i])<=((1/4)*abs(c_k_eq[i])):
-                        if current_p_vect_eq[i]>=self.pmax:
-                            current_p_vect_eq[i]=self.pmax                        
-                        else:
-                            current_p_vect_eq[i]=self.gamma*current_p_vect_eq[i]                      
-                c_k_eq=c_knext_eq.copy()
-
-                      
-
-
-
-
-
-
             KM.Logger.Print("")
             KM.Logger.PrintInfo("ShapeOpt", "Time needed for current optimization step = ", timer.GetLapTime(), "s")
             KM.Logger.PrintInfo("ShapeOpt", "Time needed for total optimization so far = ", timer.GetTotalTime(), "s")
-
-            # Check convergence of outer loop
-            if outer_iteration == self.max_outer_iterations:
-                KM.Logger.Print("")
-                KM.Logger.PrintInfo("ShapeOpt", "Maximal outer iterations of optimization problem reached!")
-                break
 
             if is_max_total_iterations_reached:
                 KM.Logger.Print("")
                 KM.Logger.PrintInfo("ShapeOpt", "Maximal total iterations of optimization problem reached!")
                 break
-            
-            """
-            relative_tolerance_outer=100.0*(abs(A-A_init_inner)/abs(A))
-            KM.Logger.Print("Relative outer tolerance ",relative_tolerance_outer)
-            if relative_tolerance_outer<=self.inner_iteration_tolerance:
-                KM.Logger.Print("")
-                KM.Logger.PrintInfo("ShapeOpt","Optimization problem converged within a relative objective tolerance of",relative_tolerance_outer,self.inner_iteration_tolerance,"%.")
-                break
-            """
-            if exit_flag:
-                KM.Logger.Print("")
-                KM.Logger.PrintInfo("ShapeOpt","Optimization problem converged within a relative objective tolerance of",relative_tolerance_outer,self.inner_iteration_tolerance,"%.")
-                break
 
             if is_design_converged:
-                KM.Logger.Print("")
-                KM.Logger.PrintInfo("ShapeOpt", "Update of design variables is zero. Optimization converged!")
                 break
+                #KM.Logger.Print("")
+                #KM.Logger.PrintInfo("ShapeOpt","Optimization problem converged within a relative objective tolerance of",relative_tolerance_outer,self.inner_iteration_tolerance,"%.")
+            
+       
 # ==============================================================================
     def FinalizeOptimizationLoop(self):
         self.analyzer.FinalizeAfterOptimizationLoop()
         self.data_logger.FinalizeDataLogging()
 # ==============================================================================
-    def __isAlgorithmConverged(self):
-
-        if self.opt_iteration > 1 :
-            # Check if maximum iterations were reached
-            if self.opt_iteration == self.algorithm_settings["max_iterations"].GetInt():
-                KM.Logger.Print("")
-                KM.Logger.PrintInfo("ShapeOpt", "Maximal iterations of optimization problem reached!")
-                return True
-
-            # Check for relative tolerance
-            relative_change_of_objective_value = self.data_logger.GetValues("rel_change_objective")[self.opt_iteration]
-            if abs(relative_change_of_objective_value) < self.algorithm_settings["relative_tolerance"].GetDouble():
-                KM.Logger.Print("")
-                KM.Logger.PrintInfo("ShapeOpt", "Optimization problem converged within a relative objective tolerance of ",self.algorithm_settings["relative_tolerance"].GetDouble(),"%.")
-                return True
+    def __CheckConvergence(self,F_knext,F_k,current_iteration,n1,n2,
+                    absolute_tolerance,relative_tolerance,max_iterations,type_iteration,n_iteration_1=1,n_iteration_2=1,):
+        
+        n1=n1
+        n2=n2
+        if current_iteration == max_iterations:
+            flag=True
+            KM.Logger.Print("")
+            KM.Logger.PrintInfo("ShapeOpt", "Maximal", type_iteration, "iterations of optimization problem reached!")
+            return flag,n1,n2
+        else:        
+            dF1=abs(F_knext-F_k)
+        
+        if dF1 >absolute_tolerance:
+            n1=0
+        else:
+            n1+=1
+        if n1>=n_iteration_1:
+            flag=True
+            KM.Logger.PrintInfo("ShapeOpt","Optimization problem converged within a absolut tolerance of",
+            dF1,"%."," for the Augmented Lagrange Function")
+            return flag,n1,n2
+        else:
+            dF2=100*dF1/(max(abs(F_knext),10e-6))
+        if dF2>relative_tolerance:
+            n2=0
+        else:
+            n2+=1
+        if n2>=n_iteration_2:
+            flag=True
+            KM.Logger.PrintInfo("ShapeOpt","Optimization problem converged within a relative tolerance of",
+            dF2,"%."," for the Augmented Lagrange Function")
+            return flag,n1,n2
+        else:
+            flag=False
+            return flag,n1,n2
 # ==============================================================================
     def __InitializeNewShape(self,total_iteration):
         self.model_part_controller.UpdateTimeStep(total_iteration)

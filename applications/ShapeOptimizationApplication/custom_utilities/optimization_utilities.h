@@ -64,6 +64,7 @@ public:
     ///@{
 
     typedef array_1d<double,3> array_3d;
+    typedef array_1d<double,9> array_9d;
     typedef UblasSpace<double, Matrix, Vector> DenseSpace;
 
     /// Pointer definition of OptimizationUtilities
@@ -362,6 +363,8 @@ public:
         }
     }
 
+    
+
     /**
      * Assemble the values of the nodal vector variables into a dense matrix.
      * One column per variable is created.
@@ -392,6 +395,29 @@ public:
         }
     }
 
+    void AssembleMatrix_Column(
+        Matrix& rMatrix,
+        const array_3d& rVariables
+    ) const
+    {
+        if ((rMatrix.size1() != 3 || rMatrix.size2() !=  1)){
+            rMatrix.resize(3, 1);
+        }
+
+        //int j=0;
+        //for (array_3d p_variable_j : rVariables)
+        //{
+            //const array_3d& r_variable_j = p_variable_j;
+            
+           
+            rMatrix(0, 0) = rVariables[0];//r_variable_j[0];
+            rMatrix(1, 0) = rVariables[1];//r_variable_j[1];
+            rMatrix(2, 0) = rVariables[2];//r_variable_j[2];
+            //++j;
+        //}
+            
+        
+    }
 
     /**
      * Calculate the projection of the objective gradient into the subspace tangent to
@@ -449,6 +475,33 @@ public:
         //step_size=(trans(d)*y)/(trans(d)*d);
         step_size=(inner_prod(d,y))/(inner_prod(d,d));
         return step_size;
+        
+    }
+
+
+    void UpdateHBFGS(
+        Matrix& rHApproximation,
+        Matrix& rY,
+        Matrix& rS
+
+        )
+    {
+        Matrix& H = rHApproximation;
+        Matrix& y=rY;
+        Matrix& s=rS;
+        //double tau;
+        double sigma;
+        //Matrix d(H.size1(),H.size2());
+        Matrix I = IdentityMatrix(H.size2());
+       
+        sigma=(prod(trans(s),y))(0,0);
+        //H=H*(1/sigma);
+        Matrix P= I-(prod(s,trans(y))*(1/sigma));
+        Matrix P_s =prod(P,H);
+        //H=prod(H,I-prod(y,trans(s))*(1/sigma));//);// + prod(s,trans(s))*(1/sigma);
+        
+       
+        
         
     }
     // ==============================================================================

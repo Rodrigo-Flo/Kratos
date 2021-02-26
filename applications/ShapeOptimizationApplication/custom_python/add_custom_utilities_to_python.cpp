@@ -166,6 +166,7 @@ void  AddCustomUtilitiesToPython(pybind11::module& m)
         // ----------------------------------------------------------------
         // For running augmented lagrange algorithm
         .def("CalculateStepSize_BB",&OptimizationUtilities::CalculateStepSize_BB)
+        .def("UpdateHBFGS",&OptimizationUtilities::UpdateHBFGS)
         // General optimization operations
         // ----------------------------------------------------------------
         .def("ComputeControlPointUpdate", &OptimizationUtilities::ComputeControlPointUpdate)
@@ -177,6 +178,7 @@ void  AddCustomUtilitiesToPython(pybind11::module& m)
         .def("AssembleVector", &OptimizationUtilities::AssembleVector)
         .def("AssignVectorToVariable", &OptimizationUtilities::AssignVectorToVariable)
         .def("AssembleMatrix", &AssembleMatrixForVariableList)
+        .def("AssembleMatrix_Column",  &OptimizationUtilities::AssembleMatrix_Column)
         .def("CalculateProjectedSearchDirectionAndCorrection", &OptimizationUtilities::CalculateProjectedSearchDirectionAndCorrection)
         ;
 

@@ -98,7 +98,7 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
         self.step_size = self.algorithm_settings["line_search"]["step_size"].GetDouble()
         self.line_search_type = self.algorithm_settings["line_search"]["line_search_type"].GetString()
         self.increase_factor = self.algorithm_settings["line_search"]["increase_factor"].GetDouble()
-        self.max_step_size = self.step_size#*self.algorithm_settings["line_search"]["max_increase_factor"].GetDouble()
+        self.max_step_size = self.algorithm_settings["line_search"]["max_increase_factor"].GetDouble()
       
         self.max_total_iterations = self.algorithm_settings["max_total_iterations"].GetInt()
         self.max_outer_iterations = self.algorithm_settings["max_outer_iterations"].GetInt()
@@ -276,10 +276,13 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
 
                 A=objective_value+conditions_ineq+conditions_eq
                 self.A=A#Used by the AdjustStepSize Function
+                """
+                if self.line_search_type == "adaptive_stepping" and inner_iteration > 1:
+                   self.__AdjustStepSize(previous_A)
+                elif inner_iteration==1:
+                    self.step_size=4.0
                 
-                #if self.line_search_type == "adaptive_stepping" and total_iteration > 1:
-                #   self.__AdjustStepSize(previous_A)
-                
+                """
                 if total_iteration==1:
                     dA_relative = 0.0
                 else:
@@ -315,21 +318,18 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
                         conditions_grad_ineq_vector+=conditions_grad_ineq_vector
                     
                 for itr in range(len(h_gradient_variables)):
-                    conditions_grad_eq_vector+=(current_lambda_h[itr]*scale_g_vector[itr]+2*current_p_vect_eq[itr]*h_values[itr])*h_gradient_vector_kratos[itr]#(current_lambda_h[itr]+2*current_p_vect_eq[itr]*h_values[itr])*h_gradient_vector_kratos[itr]
+                    conditions_grad_eq_vector+=(current_lambda_h[itr]*scale_h_vector[itr]+2*current_p_vect_eq[itr]*h_values[itr])*h_gradient_vector_kratos[itr]#(current_lambda_h[itr]+2*current_p_vect_eq[itr]*h_values[itr])*h_gradient_vector_kratos[itr]
                 
                 dA_dX_mapped=nabla_f+conditions_grad_ineq_vector+conditions_grad_eq_vector   
                 gp_utilities.AssignVectorToVariable(dA_dX_mapped,KSO.DADX_MAPPED)
                 #search_direction_augmented=-1*dA_dX_mapped
 
 
-                if total_iteration>1:
-                    self.step_size=gp_utilities.CalculateStepSize_BB(dA_dX_mapped,dA_dX_mapped_previous,self.step_size)
+                
                     
-                    #if self.step_size<self.max_step_size*0.25:
-                    #    self.step_size=self.max_step_size*0.25
 
                  #---Quasi_Newton_Method-----#
-                if total_iteration==1:
+                if inner_iteration>=1:
                     search_direction_augmented=-1*dA_dX_mapped#H_.__mul__(dA_dX_mapped) 
                     gp_utilities.AssignVectorToVariable(search_direction_augmented, KSO.SEARCH_DIRECTION)
                     
@@ -341,33 +341,53 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
                     H_.fill_identity()
                     for node in self.design_surface.Nodes:
                         node.SetSolutionStepValue(KSO.H_MATRIX,H_)
+                """
                 else:
                     y_=dA_dX_mapped-dA_dX_mapped_previous
                     gp_utilities.AssignVectorToVariable(y_, KSO.DIFF_)
-                    for node in self.design_surface.Nodes: 
-                        s_nodal=node.GetSolutionStepValue(KSO.CONTROL_POINT_UPDATE)
-                        y_nodal=node.GetSolutionStepValue(KSO.DIFF_)
-                        phi_grad=node.GetSolutionStepValue(KSO.DADX_MAPPED)
-                        H_=node.GetSolutionStepValue(KSO.H_MATRIX)
-                        s_matrix=KM.Matrix()
-                        y_matrix= KM.Matrix()
-                        gp_utilities.AssembleMatrix_Column(s_matrix,s_nodal)
-                        gp_utilities.AssembleMatrix_Column(y_matrix,y_nodal)
-                        sigma=(s_matrix.transpose().__mul__(y_matrix))[0,0]
-                        print(sigma)
-                        Left= I-(s_matrix.__mul__(y_matrix.transpose()))*(1/sigma)
-                        Right=I-(y_matrix.__mul__(s_matrix.transpose()))*(1/sigma)
-                        Add_term=(s_matrix.__mul__(s_matrix.transpose()))*(1/sigma)
-                        PreMul=Left.__mul__(H_)
-                        PosMul=PreMul.__mul__(Right)
-                        H_=PosMul.__add__(Add_term)
-                        node.SetSolutionStepValue(KSO.H_MATRIX,H_)
-                        search_direction_nodal=(H_.__mul__(phi_grad)).__mul__(-1)
-                        node.SetSolutionStepValue(KSO.SEARCH_DIRECTION,search_direction_nodal)
+                    if abs(dA_relative) > 0.1:
+                        print("QUASI_NEWTON_USED----------------------")
+                        for node in self.design_surface.Nodes: 
+                            s_nodal=node.GetSolutionStepValue(KSO.CONTROL_POINT_UPDATE)
+                            y_nodal=node.GetSolutionStepValue(KSO.DIFF_)
+                            phi_grad=node.GetSolutionStepValue(KSO.DADX_MAPPED)
+                            H_=node.GetSolutionStepValue(KSO.H_MATRIX)
+                            s_matrix=KM.Matrix()
+                            y_matrix= KM.Matrix()
+                            gp_utilities.AssembleMatrix_Column(s_matrix,s_nodal)
+                            gp_utilities.AssembleMatrix_Column(y_matrix,y_nodal)
+                            sigma=(s_matrix.transpose().__mul__(y_matrix))[0,0]
+                            Left= I-(s_matrix.__mul__(y_matrix.transpose()))*(1/sigma)
+                            Right=I-(y_matrix.__mul__(s_matrix.transpose()))*(1/sigma)
+                            Add_term=(s_matrix.__mul__(s_matrix.transpose()))*(1/sigma)
+                            PreMul=Left.__mul__(H_)
+                            PosMul=PreMul.__mul__(Right)
+                            H_=PosMul.__add__(Add_term)
+                            node.SetSolutionStepValue(KSO.H_MATRIX,H_)
+                            search_direction_nodal=(H_.__mul__(phi_grad)).__mul__(-1)
+                            node.SetSolutionStepValue(KSO.SEARCH_DIRECTION,search_direction_nodal)
+                    else:   
+                        for node in self.design_surface.Nodes:
+                            phi_grad=node.GetSolutionStepValue(KSO.DADX_MAPPED)
+                            H_=KM.Matrix()
+                            H_.Resize(3,3)
+                            H_.fill_identity()
+                            node.SetSolutionStepValue(KSO.H_MATRIX,H_)
+                            search_direction_nodal=-1*phi_grad
+                            node.SetSolutionStepValue(KSO.SEARCH_DIRECTION,search_direction_nodal)"""
 
 
 
-
+                #if inner_iteration==1:#total_iteration>1
+                 #   self.step_size=self.algorithm_settings["line_search"]["step_size"].GetDouble()
+               # else:    
+                if total_iteration>1:
+                    self.step_size=gp_utilities.CalculateStepSize_BB(dA_dX_mapped,dA_dX_mapped_previous,self.step_size)
+                #    if self.step_size<self.max_step_size*0.25:
+                #        self.step_size=self.max_step_size*0.8
+                #else:
+                #    self.step_size=self.algorithm_settings["line_search"]["step_size"].GetDouble()
+                
                 
                 self.optimization_utilities.ComputeControlPointUpdate(1/self.step_size)
                 

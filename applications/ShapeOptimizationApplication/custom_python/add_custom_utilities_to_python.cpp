@@ -179,6 +179,8 @@ void  AddCustomUtilitiesToPython(pybind11::module& m)
         .def("AssignVectorToVariable", &OptimizationUtilities::AssignVectorToVariable)
         .def("AssembleMatrix", &AssembleMatrixForVariableList)
         .def("AssembleMatrix_Column",  &OptimizationUtilities::AssembleMatrix_Column)
+        .def("AssembleMatrixFromVector",  &OptimizationUtilities::AssembleMatrixFromVector)
+        
         .def("CalculateProjectedSearchDirectionAndCorrection", &OptimizationUtilities::CalculateProjectedSearchDirectionAndCorrection)
         ;
 

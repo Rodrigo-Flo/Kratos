@@ -334,20 +334,32 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
                     search_direction_augmented=-1*dA_dX_mapped#H_.__mul__(dA_dX_mapped) 
                     gp_utilities.AssignVectorToVariable(search_direction_augmented, KSO.SEARCH_DIRECTION)
                     
-                    I=KM.Matrix()
-                    I.Resize(3,3)
-                    I.fill_identity()
+                    #I=KM.Matrix()
+                    #.Resize(3,3)
+                    #I.fill_identity()
                     H_=KM.Matrix()
-                    H_.Resize(3,3)
+                    H_.Resize(nabla_f.Size(),nabla_f.Size()) #H_.Resize(3,3)
                     H_.fill_identity()
-                    for node in self.design_surface.Nodes:
-                        node.SetSolutionStepValue(KSO.H_MATRIX,H_)
-                
+                    #self.step_size=1.0
+                    #for node in self.design_surface.Nodes:
+                    #    node.SetSolutionStepValue(KSO.H_MATRIX,H_)
+                   
                 else:
+                    self.step_size=1.0
                     y_=dA_dX_mapped-dA_dX_mapped_previous
-                    gp_utilities.AssignVectorToVariable(y_, KSO.DIFF_)
+                    s_ = KM.Vector()
+                    gp_utilities.AssembleVector(s_,KSO.CONTROL_POINT_UPDATE)
+                    s_matrix=KM.Matrix()
+                    y_matrix=KM.Matrix()
+                    gp_utilities.AssembleMatrixFromVector(y_matrix,y_)
+                    gp_utilities.AssembleMatrixFromVector(s_matrix,s_)
+                    gp_utilities.UpdateHBFGS(H_,y_matrix,s_matrix)
+                    search_direction_augmented=-1*(H_.__mul__(dA_dX_mapped))
+                    gp_utilities.AssignVectorToVariable(search_direction_augmented, KSO.SEARCH_DIRECTION)
+                    #gp_utilities.AssignVectorToVariable(y_, KSO.DIFF_)
                     #if abs(dA_relative) > 0.1:
                     #    print("QUASI_NEWTON_USED----------------------")
+                    """
                     for node in self.design_surface.Nodes: 
                         s_nodal=node.GetSolutionStepValue(KSO.CONTROL_POINT_UPDATE)
                         y_nodal=node.GetSolutionStepValue(KSO.DIFF_)
@@ -366,7 +378,7 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
                         H_=PosMul.__add__(Add_term)
                         node.SetSolutionStepValue(KSO.H_MATRIX,H_)
                         search_direction_nodal=(H_.__mul__(phi_grad)).__mul__(-1)
-                        node.SetSolutionStepValue(KSO.SEARCH_DIRECTION,search_direction_nodal)
+                        node.SetSolutionStepValue(KSO.SEARCH_DIRECTION,search_direction_nodal)"""
                     #else:   
                     #    for node in self.design_surface.Nodes:
                     #        phi_grad=node.GetSolutionStepValue(KSO.DADX_MAPPED)
@@ -383,8 +395,13 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
                 #    self.step_size=self.algorithm_settings["line_search"]["step_size"].GetDouble()
                 
                 #else:
+                """
                 if total_iteration>1:
-                    self.step_size=self.algorithm_settings["line_search"]["step_size"].GetDouble()#self.step_size=gp_utilities.CalculateStepSize_BB(dA_dX_mapped,dA_dX_mapped_previous,self.step_size)    
+                    self.step_size=gp_utilities.CalculateStepSize_BB(dA_dX_mapped,dA_dX_mapped_previous,self.step_size)
+                if self.step_size<0.5*self.algorithm_settings["line_search"]["step_size"].GetDouble():
+                    self.step_size= 0.5*self.algorithm_settings["line_search"]["step_size"].GetDouble()
+                """
+                print(self.step_size)
                 #if total_iteration>1:
                 #    
                 #    if self.step_size<self.max_step_size*0.25:
@@ -393,7 +410,7 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
                 #    self.step_size=self.algorithm_settings["line_search"]["step_size"].GetDouble()
                 
                 
-                self.optimization_utilities.ComputeControlPointUpdate(1/self.step_size)
+                self.optimization_utilities.ComputeControlPointUpdate(self.step_size)
                 
 
                     

@@ -477,7 +477,23 @@ public:
         return step_size;
         
     }
+    void AssembleMatrixFromVector(
+        Matrix& rMatrix,
+        Vector& rVector)
+    {
+        if (rMatrix.size1() != mrDesignSurface.NumberOfNodes()*3){
+            rMatrix.resize(mrDesignSurface.NumberOfNodes()*3,1);
+        }
 
+        
+        for (unsigned int i=0; i < mrDesignSurface.NumberOfNodes(); i++)
+        {
+            rMatrix(i*3+0,0) =  rVector[i*3+0];
+            rMatrix(i*3+1,0) =  rVector[i*3+1];
+            rMatrix(i*3+2,0) =  rVector[i*3+2];
+            
+        }
+    }
 
     void UpdateHBFGS(
         Matrix& rHApproximation,
@@ -491,15 +507,22 @@ public:
         Matrix& s=rS;
         //double tau;
         double sigma;
+        double scalar;
         //Matrix d(H.size1(),H.size2());
-        Matrix I = IdentityMatrix(H.size2());
+        //Matrix I = IdentityMatrix(H.size2());
        
         sigma=(prod(trans(s),y))(0,0);
+        Matrix yt_H=prod(trans(y),H);
+        Matrix H_y=prod(H,y);
+        scalar=(prod(yt_H,y)(0,0))/sigma;
+        H = H - (prod(s,yt_H) + prod(H_y,trans(s)))*(1/sigma) + (1+scalar)*(prod(s,trans(s))*(1/sigma));
+        
+        /*
         //H=H*(1/sigma);
         Matrix P= I-(prod(s,trans(y))*(1/sigma));
         Matrix P_s =prod(P,H);
         //H=prod(H,I-prod(y,trans(s))*(1/sigma));//);// + prod(s,trans(s))*(1/sigma);
-        
+        */
        
         
         

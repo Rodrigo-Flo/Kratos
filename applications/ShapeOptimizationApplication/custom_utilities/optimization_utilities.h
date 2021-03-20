@@ -477,6 +477,26 @@ public:
         return step_size;
         
     }
+
+    double CalculateStepSize_BB_QuasiNewton(
+        Vector& rAugmentedCurrentGradient,
+        Vector& rAugmentedPreviousGradient,
+        Vector& rSearchDirection,
+        double& StepSize
+        )
+    {
+        
+        Vector g_k = rAugmentedCurrentGradient;
+        Vector g_k_previous = rAugmentedPreviousGradient;
+        Vector search_direction=rSearchDirection;
+        double step_size= StepSize;
+        Vector d= search_direction*(1/step_size);
+        Vector y= g_k+search_direction;
+        //step_size=(trans(d)*y)/(trans(d)*d);
+        step_size=(inner_prod(d,y))/(inner_prod(d,d));
+        return step_size;
+        
+    }
     void AssembleMatrixFromVector(
         Matrix& rMatrix,
         Vector& rVector)

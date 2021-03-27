@@ -474,26 +474,28 @@ public:
         Vector y= g_k-g_k_previous;
         //step_size=(trans(d)*y)/(trans(d)*d);
         step_size=(inner_prod(d,y))/(inner_prod(d,d));
+        //step_size=(inner_prod(y,y))/(inner_prod(y,d));
         return step_size;
         
     }
 
     double CalculateStepSize_BB_QuasiNewton(
         Vector& rAugmentedCurrentGradient,
-        Vector& rAugmentedPreviousGradient,
-        Vector& rSearchDirection,
+        Vector& rSearchDirection,//rAugmentedPreviousGradient,
+        Vector& rSearchDirectionPrevious,//rSearchDirection,
         double& StepSize
         )
     {
         
         Vector g_k = rAugmentedCurrentGradient;
-        Vector g_k_previous = rAugmentedPreviousGradient;
-        Vector search_direction=rSearchDirection;
+        Vector search_direction=rSearchDirection;//g_k_previous = rAugmentedPreviousGradient;
+        Vector search_direction_previous=rSearchDirectionPrevious;//search_direction=rSearchDirection;
         double step_size= StepSize;
         Vector d= search_direction*(1/step_size);
-        Vector y= g_k+search_direction;
+        Vector y= search_direction_previous-search_direction; //g_k+search_direction;
         //step_size=(trans(d)*y)/(trans(d)*d);
-        step_size=(inner_prod(d,y))/(inner_prod(d,d));
+        //step_size=(inner_prod(d,y))/(inner_prod(d,d));
+        step_size=(inner_prod(y,y))/(inner_prod(y,d));
         return step_size;
         
     }

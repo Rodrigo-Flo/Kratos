@@ -159,186 +159,30 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
         h_gradient_vector_kratos=[]
         scale_g_vector=[]
         scale_h_vector=[]
-        flag_g=[]
+        
         is_design_converged = False
         is_max_total_iterations_reached = False
         outer_iteration=1
         n1_outer_absolute=0
         n2_outer_relative=0
         while is_design_converged==False: 
-            flag_g.clear()
-            flag_h.clear()  
-            total_iteration+= 1
+            #for outer_iteration in range(1,self.max_outer_iterations+1):           
             n1=0
-            timer.StartNewLap()
-            KM.Logger.Print("")
-            KM.Logger.Print("===============================================================================")
-            KM.Logger.PrintInfo("ShapeOpt", timer.GetTimeStamp(),  ": Starting iteration ",outer_iteration,".",0,".",total_iteration,"(outer . inner. total)")
-            KM.Logger.Print("===============================================================================\n")
-
-
-            self.__InitializeNewShape(total_iteration)
-            self.__AnalyzeShape(total_iteration)
-            self.__Mapping()
-            gp_utilities = self.optimization_utilities
-                
-            objective_value = self.communicator.getStandardizedValue(self.objectives[0]["identifier"].GetString())      
-            g_values,g_gradient_variables,h_values,h_gradient_variables=self.__SeparateConstraints()
-
-         
-            KM.Logger.PrintInfo("ShapeOpt", "Assemble vector of objective gradient.")
-            nabla_f = KM.Vector()
-            gp_utilities.AssembleVector(nabla_f, KSO.DF1DX_MAPPED)
-                    
-            KM.Logger.PrintInfo("ShapeOpt", "Assemble vector of constraints gradient.")
-                
-                               
-            g_gradient_vector_kratos.clear()    
-            for itr in  range(len(g_gradient_variables)) :
-                 g_gradient_vector_kratos.append( KM.Vector())
-                 gp_utilities.AssembleVector(g_gradient_vector_kratos[itr], g_gradient_variables[itr])
-                    
-            h_gradient_vector_kratos.clear()
-            for itr in  range(len(h_gradient_variables)):
-                 h_gradient_vector_kratos.append( KM.Vector())
-                 gp_utilities.AssembleVector(h_gradient_vector_kratos[itr], h_gradient_variables[itr])
-
-        #-------------Scaling constraints----------------------------------------------------------------------# 
-            scale_g_vector.clear()
-            scale_h_vector.clear()
-            for itr in range(len(g_gradient_variables)):
-                scale_g_vector[itr]=self.__Scale_factors(itr,scale_g_vector,nabla_f,g_gradient_vector_kratos)  
-                #g_values[itr]=scale_g_vector[itr]*g_values[itr]
-            for itr in range(len(h_gradient_variables)):
-                scale_h_vector[itr]=self.__Scale_factors(itr,scale_h_vector,nabla_f,h_gradient_vector_kratos)
-                #h_values[itr]=scale_h_vector[itr]*h_values[itr]
-        #---------------End of scaling------------------------------------------------------------------------#
-
-        # Update lambda
-            if (outer_iteration>1):  
-                #Update penalty factor vector
-                if self.number_ineq >0:
-                    c_knext.clear()
-                    for i in range (self.number_ineq):
-                        c_knext.append(max(g_values[i],0))
-                                    
-                    for i in range (len(c_knext)):
-                        if  not abs(c_knext[i])<=((1/4)*abs(c_k[i])):
-                            if current_p_vect_ineq[i]>=self.pmax:
-                                current_p_vect_ineq[i]=self.pmax                        
-                            else:
-                                current_p_vect_ineq[i]=self.gamma*current_p_vect_ineq[i]
-                    c_k=c_knext.copy()     
-                
-                if self.number_eq >0:
-                    c_knext_eq.clear()
-                    for i in range(self.number_eq):    
-                        c_knext_eq.append(max(h_values[i],0))
-                    
-                    for i in range (len(c_knext_eq)):
-                        if  not abs(c_knext_eq[i])<=((1/4)*abs(c_k_eq[i])):
-                            if current_p_vect_eq[i]>=self.pmax:
-                                current_p_vect_eq[i]=self.pmax                        
-                            else:
-                                current_p_vect_eq[i]=self.gamma*current_p_vect_eq[i]                      
-                    c_k_eq=c_knext_eq.copy()
-                
-                
-                # Update lambda
-                for itr in range(len(g_values)):
-                    if scale_g_vector[itr]*g_values[itr]>(-1*current_lambda_g[itr])/(2*current_p_vect_ineq[itr]):
-                        current_lambda_g[itr]=current_lambda_g[itr]+2*current_p_vect_ineq[itr]*g_values[itr]*scale_g_vector[itr]
-                    else:
-                        current_lambda_g[itr]=0.0
-                
-                for itr in range(len(h_values)):
-                    current_lambda_h[itr]=current_lambda_h[itr]+2*current_p_vect_eq[itr]*h_values[itr]*scale_h_vector[itr]                        
-            
-        
-            conditions_ineq=0.0                             
-            for itr in range(len(g_values)):
-                if scale_g_vector[itr]*g_values[itr]>(-1*current_lambda_g[itr])/(2*current_p_vect_ineq[itr]):
-                    flag_g.append(True)
-                    conditions_ineq+=current_lambda_g[itr]*scale_g_vector[itr]*g_values[itr]+current_p_vect_ineq[itr]*(g_values[itr]*scale_g_vector[itr])**2
-                else:
-                    conditions_ineq+=(-1)*(current_lambda_g[itr])**2/(4*current_p_vect_ineq[itr])
-                    flag_g.append(False)       
-            conditions_eq=0.0
-            for itr in range(len(h_values)):
-                conditions_eq+=current_lambda_h[itr]*scale_h_vector[itr]*h_values[itr]+current_p_vect_eq[itr]*(h_values[itr]*scale_h_vector[itr])**2
-                
-
-            A=objective_value+conditions_ineq+conditions_eq
-            self.A=A#Used by the AdjustStepSize Function
-            
-
-            conditions_grad_ineq_vector=KM.Vector()
-            conditions_grad_ineq_vector.Resize(nabla_f.Size())
-            conditions_grad_ineq_vector.fill(0.0)
-
-            conditions_grad_eq_vector=KM.Vector()
-            conditions_grad_eq_vector.Resize(nabla_f.Size())
-            conditions_grad_eq_vector.fill(0.0)
-
-                                               
-            for itr in range(len(g_gradient_variables)):
-                if scale_g_vector[itr]*g_values[itr]>(-1*current_lambda_g[itr])/(2*current_p_vect_ineq[itr]):
-                    conditions_grad_ineq_vector+=(current_lambda_g[itr]+2*current_p_vect_ineq[itr]*scale_g_vector[itr]*g_values[itr])*scale_g_vector[itr]*g_gradient_vector_kratos[itr]
-                else:
-                    conditions_grad_ineq_vector+=conditions_grad_ineq_vector
-                    
-            for itr in range(len(h_gradient_variables)):
-                conditions_grad_eq_vector+=(current_lambda_h[itr]+2*current_p_vect_eq[itr]*scale_h_vector[itr]*h_values[itr])*scale_h_vector[itr]*h_gradient_vector_kratos[itr]#(current_lambda_h[itr]+2*current_p_vect_eq[itr]*h_values[itr])*h_gradient_vector_kratos[itr]
-                
-            dA_dX_mapped=nabla_f+conditions_grad_ineq_vector+conditions_grad_eq_vector   
-            gp_utilities.AssignVectorToVariable(dA_dX_mapped,KSO.DADX_MAPPED)
-               
-            #---Quasi_Newton_Method-----#
-               
-            search_direction_augmented=-1*dA_dX_mapped
-            gp_utilities.AssignVectorToVariable(search_direction_augmented, KSO.SEARCH_DIRECTION)
-            H_=KM.Matrix()
-            H_.Resize(nabla_f.Size(),nabla_f.Size()) 
-            H_.fill_identity()
-
-            self.optimization_utilities.ComputeControlPointUpdate(self.step_size)  
-            self.mapper.Map(KSO.CONTROL_POINT_UPDATE, KSO.SHAPE_UPDATE)
-            self.model_part_controller.DampNodalVariableIfSpecified(KSO.SHAPE_UPDATE)
-             
-            dA_relative = 0.0
-            self.dA_relative =dA_relative
             for inner_iteration in range(1,self.max_inner_iterations+1):
-                if inner_iteration==1:
-                    dA_dX_mapped_previous=dA_dX_mapped
-                    previous_A=A
-                    self.__LogCurrentOptimizationStep(outer_iteration,inner_iteration-1,
-                                                current_lambda_g,current_lambda_h,current_p_vect_ineq,current_p_vect_eq,
-                                                total_iteration)
-
-                    if total_iteration>1:
-                        is_design_converged,n1_outer_absolute,n2_outer_relative=self.__CheckConvergence(A,A_init_inner,outer_iteration,n1_outer_absolute,n2_outer_relative,
-                        0.0001,self.inner_iteration_tolerance,self.max_outer_iterations,"outer",n_iteration_1=1,n_iteration_2=1)#1,2
-                        if is_design_converged: 
-                            KM.Logger.Print("")
-                            self.__LogCurrentOptimizationStep(outer_iteration,inner_iteration,
-                                                current_lambda_g,current_lambda_h,current_p_vect_ineq,current_p_vect_eq,
-                                                total_iteration)
-                            break
-                    A_init_inner=A 
-                    KM.Logger.Print("")
-                    KM.Logger.PrintInfo("ShapeOpt", "Time needed for current optimization step = ", timer.GetLapTime(), "s")
-                    KM.Logger.PrintInfo("ShapeOpt", "Time needed for total optimization so far = ", timer.GetTotalTime(), "s") 
-                
                 total_iteration += 1
+
                 KM.Logger.Print("")
                 KM.Logger.Print("===============================================================================")
                 KM.Logger.PrintInfo("ShapeOpt", timer.GetTimeStamp(),  ": Starting iteration ",outer_iteration,".",inner_iteration,".",total_iteration,"(outer . inner. total)")
                 KM.Logger.Print("===============================================================================\n")
                 timer.StartNewLap()
+
                 self.__InitializeNewShape(total_iteration)
+            
                 self.__AnalyzeShape(total_iteration)
+
                 self.__Mapping()
-               
+                gp_utilities = self.optimization_utilities
                 
                 objective_value = self.communicator.getStandardizedValue(self.objectives[0]["identifier"].GetString())      
                 g_values,g_gradient_variables,h_values,h_gradient_variables=self.__SeparateConstraints()
@@ -363,25 +207,71 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
                 for itr in  range(len(h_gradient_variables)):
                     h_gradient_vector_kratos.append( KM.Vector())
                     gp_utilities.AssembleVector(h_gradient_vector_kratos[itr], h_gradient_variables[itr])
-                
-                if (inner_iteration==1 and outer_iteration==1):
-                    c_k,c_knext,c_k_eq,c_knext_eq=self.__AreInitialConstraintFeasible(g_values,h_values)
 
+            #-------------Scaling constraints----------------------------------------------------------------------#
+                if(inner_iteration==1): 
+                    scale_g_vector.clear()
+                    scale_h_vector.clear()
+                for itr in range(len(g_gradient_variables)):
+                    g_values[itr],scale_g_vector[itr]=self.__Scale_constraints(inner_iteration,itr,
+                                        scale_g_vector,g_values,nabla_f,g_gradient_vector_kratos)  
+                for itr in range(len(h_gradient_variables)):
+                    h_values[itr],scale_h_vector[itr]=self.__Scale_constraints(inner_iteration,itr,
+                                        scale_h_vector,h_values,nabla_f,h_gradient_vector_kratos)
+            #---------------End of scaling------------------------------------------------------------------------#
                
-                
+                if (inner_iteration==2 and outer_iteration==1):
+                    c_k,c_knext,c_k_eq,c_knext_eq=self.__AreInitialConstraintFeasible(g_values,h_values)
             #----------------------------------------------------------------------------------------------------#
-                      
+                
+                if (inner_iteration==1 and outer_iteration>1):  
+                    #Update penalty factor vector
+                    if self.number_ineq >0:
+                        c_knext.clear()
+                        for i in range (self.number_ineq):
+                            c_knext.append(max(g_values[i],0))
+                                    
+                        for i in range (len(c_knext)):
+                            if  not abs(c_knext[i])<=((1/4)*abs(c_k[i])):
+                                if current_p_vect_ineq[i]>=self.pmax:
+                                    current_p_vect_ineq[i]=self.pmax                        
+                                else:
+                                    current_p_vect_ineq[i]=self.gamma*current_p_vect_ineq[i]
+                        c_k=c_knext.copy()     
+                
+                    if self.number_eq >0:
+                        c_knext_eq.clear()
+                        for i in range(self.number_eq):    
+                            c_knext_eq.append(max(h_values[i],0))
+                    
+                        for i in range (len(c_knext_eq)):
+                            if  not abs(c_knext_eq[i])<=((1/4)*abs(c_k_eq[i])):
+                                if current_p_vect_eq[i]>=self.pmax:
+                                    current_p_vect_eq[i]=self.pmax                        
+                                else:
+                                    current_p_vect_eq[i]=self.gamma*current_p_vect_eq[i]                      
+                        c_k_eq=c_knext_eq.copy()    
+
+                    # Update lambda
+                    for itr in range(len(g_values)):
+                        if g_values[itr]>(-1*current_lambda_g[itr])/(2*current_p_vect_ineq[itr]):
+                            current_lambda_g[itr]=current_lambda_g[itr]+2*current_p_vect_ineq[itr]*g_values[itr]
+                        else:
+                            current_lambda_g[itr]=0.0
+                
+                    for itr in range(len(h_values)):
+                        current_lambda_h[itr]=current_lambda_h[itr]+2*current_p_vect_eq[itr]*h_values[itr]     
 
                 conditions_ineq=0.0                             
                 for itr in range(len(g_values)):
-                    if scale_g_vector[itr]*g_values[itr]>(-1*current_lambda_g[itr])/(2*current_p_vect_ineq[itr]):#flag_g[itr]==True:
-                        conditions_ineq+=current_lambda_g[itr]*scale_g_vector[itr]*g_values[itr]+current_p_vect_ineq[itr]*(g_values[itr]*scale_g_vector[itr])**2
+                    if g_values[itr]>(-1*current_lambda_g[itr])/(2*current_p_vect_ineq[itr]):
+                        conditions_ineq+=current_lambda_g[itr]*g_values[itr]+current_p_vect_ineq[itr]*g_values[itr]**2
                     else:
                         conditions_ineq+=(-1)*(current_lambda_g[itr])**2/(4*current_p_vect_ineq[itr])
                             
                 conditions_eq=0.0
                 for itr in range(len(h_values)):
-                    conditions_eq+=current_lambda_h[itr]*scale_h_vector[itr]*h_values[itr]+current_p_vect_eq[itr]*(h_values[itr]*scale_h_vector[itr])**2
+                    conditions_eq+=current_lambda_h[itr]*h_values[itr]+current_p_vect_eq[itr]*h_values[itr]**2
                 
 
                 A=objective_value+conditions_ineq+conditions_eq
@@ -399,11 +289,11 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
                 else:
                     dA_relative = 100*(1-(previous_A/A)) 
                 self.dA_relative=dA_relative#Used by the Log Information
-                """
+
                 if inner_iteration ==1:
                     if total_iteration>1:
                         is_design_converged,n1_outer_absolute,n2_outer_relative=self.__CheckConvergence(A,A_init_inner,outer_iteration,n1_outer_absolute,n2_outer_relative,
-                        0.0001,self.inner_iteration_tolerance,self.max_outer_iterations,"outer",n_iteration_1=1,n_iteration_2=1)#1,2
+                        0.0001,self.inner_iteration_tolerance,self.max_outer_iterations,"outer",n_iteration_1=3,n_iteration_2=3,)
                         if is_design_converged: 
                             KM.Logger.Print("")
                             self.__LogCurrentOptimizationStep(outer_iteration,inner_iteration,
@@ -411,7 +301,7 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
                                                 total_iteration)
                             break
                     A_init_inner=A
-                """                                
+                    #holi            
 
                 conditions_grad_ineq_vector=KM.Vector()
                 conditions_grad_ineq_vector.Resize(nabla_f.Size())
@@ -423,19 +313,44 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
 
                                                
                 for itr in range(len(g_gradient_variables)):
-                    if scale_g_vector[itr]*g_values[itr]>(-1*current_lambda_g[itr])/(2*current_p_vect_ineq[itr]):#flag_g[itr]==True:#g_values[itr]>(-1*current_lambda_g[itr])/(2*current_p_vect_ineq[itr]):
-                        conditions_grad_ineq_vector+=(current_lambda_g[itr]+2*current_p_vect_ineq[itr]*scale_g_vector[itr]*g_values[itr])*scale_g_vector[itr]*g_gradient_vector_kratos[itr]
+                    if g_values[itr]>(-1*current_lambda_g[itr])/(2*current_p_vect_ineq[itr]):
+                        conditions_grad_ineq_vector+=(current_lambda_g[itr]*scale_g_vector[itr]+2*current_p_vect_ineq[itr]*g_values[itr]*scale_g_vector[itr])*g_gradient_vector_kratos[itr]
                     else:
                         conditions_grad_ineq_vector+=conditions_grad_ineq_vector
                     
                 for itr in range(len(h_gradient_variables)):
-                    conditions_grad_eq_vector+=(current_lambda_h[itr]+2*current_p_vect_eq[itr]*scale_h_vector[itr]*h_values[itr])*scale_h_vector[itr]*h_gradient_vector_kratos[itr]#(current_lambda_h[itr]+2*current_p_vect_eq[itr]*h_values[itr])*h_gradient_vector_kratos[itr]
+                    conditions_grad_eq_vector+=(current_lambda_h[itr]*scale_h_vector[itr]+2*current_p_vect_eq[itr]*h_values[itr]*scale_h_vector[itr])*h_gradient_vector_kratos[itr]#(current_lambda_h[itr]+2*current_p_vect_eq[itr]*h_values[itr])*h_gradient_vector_kratos[itr]
                 
                 dA_dX_mapped=nabla_f+conditions_grad_ineq_vector+conditions_grad_eq_vector   
                 gp_utilities.AssignVectorToVariable(dA_dX_mapped,KSO.DADX_MAPPED)
-                #search_direction_augmented=-1*dA_dX_mapped
+                #search_direction_augmented=-1*dA_dX_mapped#H_.__mul__(dA_dX_mapped) 
                 #gp_utilities.AssignVectorToVariable(search_direction_augmented, KSO.SEARCH_DIRECTION)
-                """
+                
+                 #---Quasi_Newton_Method-----#
+                if inner_iteration==1:
+                    search_direction_augmented=-1*dA_dX_mapped#H_.__mul__(dA_dX_mapped) 
+                    gp_utilities.AssignVectorToVariable(search_direction_augmented, KSO.SEARCH_DIRECTION)
+                    H_=KM.Matrix()
+                    H_.Resize(nabla_f.Size(),nabla_f.Size()) #H_.Resize(3,3)
+                    H_.fill_identity() 
+                
+                else:
+                  
+                    y_=dA_dX_mapped-dA_dX_mapped_previous
+                    s_ = KM.Vector()
+                    gp_utilities.AssembleVector(s_,KSO.CONTROL_POINT_UPDATE)#KSO.CONTROL_POINT_UPDATE)
+                    #s_=self.step_size*s_
+                    s_matrix=KM.Matrix()
+                    y_matrix=KM.Matrix()
+                    gp_utilities.AssembleMatrixFromVector(y_matrix,y_)
+                    gp_utilities.AssembleMatrixFromVector(s_matrix,s_)
+                    
+                    gp_utilities.UpdateHBFGS(H_,y_matrix,s_matrix)
+                    
+                    search_direction_augmented=-1*(H_.__mul__(dA_dX_mapped))
+                    gp_utilities.AssignVectorToVariable(search_direction_augmented, KSO.SEARCH_DIRECTION)
+                
+                """ 
                 if inner_iteration>1:
                     self.step_size= abs(gp_utilities.CalculateStepSize_BB_QuasiNewton(dA_dX_mapped,dA_dX_mapped_previous,previous_search_direction,self.step_size))
                     if abs(self.step_size)<0.1*self.algorithm_settings["line_search"]["step_size"].GetDouble():
@@ -444,54 +359,16 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
                 else:
                     self.step_size=self.algorithm_settings["line_search"]["step_size"].GetDouble()
                 """
-                 #---Quasi_Newton_Method-----#
-                """
-                if inner_iteration==1:
-                    search_direction_augmented=-1*dA_dX_mapped#H_.__mul__(dA_dX_mapped) 
-                    gp_utilities.AssignVectorToVariable(search_direction_augmented, KSO.SEARCH_DIRECTION)
-                    H_=KM.Matrix()
-                    H_.Resize(nabla_f.Size(),nabla_f.Size()) #H_.Resize(3,3)
-                    H_.fill_identity() 
+                
+                """"
+                if inner_iteration>1:
+                    self.step_size= (gp_utilities.CalculateStepSize_BB(dA_dX_mapped,dA_dX_mapped_previous,self.step_size))
+                    #if abs(self.step_size)<0.1*self.algorithm_settings["line_search"]["step_size"].GetDouble():
+                    #    self.step_size=self.algorithm_settings["line_search"]["step_size"].GetDouble()
+                
                 else:
+                    self.step_size=self.algorithm_settings["line_search"]["step_size"].GetDouble()
                 """
-                    #   self.step_size=2.0
-                y_=dA_dX_mapped-dA_dX_mapped_previous
-                s_ = KM.Vector()
-                gp_utilities.AssembleVector(s_,KSO.CONTROL_POINT_UPDATE)#KSO.CONTROL_POINT_UPDATE)
-                    #s_=self.step_size*s_
-                s_matrix=KM.Matrix()
-                y_matrix=KM.Matrix()
-                gp_utilities.AssembleMatrixFromVector(y_matrix,y_)
-                gp_utilities.AssembleMatrixFromVector(s_matrix,s_)
-                    
-                gp_utilities.UpdateHBFGS(H_,y_matrix,s_matrix)
-                    
-                search_direction_augmented=-1*(H_.__mul__(dA_dX_mapped))
-                gp_utilities.AssignVectorToVariable(search_direction_augmented, KSO.SEARCH_DIRECTION)
-                   
-
-                #if inner_iteration==1:#total_iteration>1
-                #    self.step_size=self.algorithm_settings["line_search"]["step_size"].GetDouble()
-                
-                #else:
-                
-                #if inner_iteration>1:
-                #   self.step_size=gp_utilities.CalculateStepSize_BB(dA_dX_mapped,dA_dX_mapped_previous,self.step_size)
-               # else:
-                 #   self.step_size=self.algorithm_settings["line_search"]["step_size"].GetDouble()
-                
-                #if self.step_size<0.5*self.algorithm_settings["line_search"]["step_size"].GetDouble():
-                #    self.step_size= 0.5*self.algorithm_settings["line_search"]["step_size"].GetDouble()
-                
-               
-                #if total_iteration>1:
-                #    
-                #    if self.step_size<self.max_step_size*0.25:
-                #        self.step_size=self.max_step_size*0.8
-                #else:
-                #    self.step_size=self.algorithm_settings["line_search"]["step_size"].GetDouble()
-                
-                
                 self.optimization_utilities.ComputeControlPointUpdate(self.step_size)
                 
 
@@ -514,14 +391,12 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
                 if total_iteration == self.max_total_iterations:
                     is_max_total_iterations_reached = True
                     break
-                           
-                if abs(dA_relative) < self.inner_iteration_tolerance:
-                    n1+=1
-                if n1==2:
-                    break
-            
+                if inner_iteration >1:            
+                    if abs(dA_relative) < self.inner_iteration_tolerance:
+                        n1+=1
+                    if n1==2:
+                        break
 
-            
             outer_iteration+=1
             KM.Logger.Print("")
             KM.Logger.PrintInfo("ShapeOpt", "Time needed for current optimization step = ", timer.GetLapTime(), "s")
@@ -539,7 +414,8 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
         self.analyzer.FinalizeAfterOptimizationLoop()
         self.data_logger.FinalizeDataLogging()
 # ==============================================================================
-    def __CheckConvergence(self,F_knext,F_k,current_iteration,n1,n2,absolute_tolerance,relative_tolerance,max_iterations,type_iteration,n_iteration_1=1,n_iteration_2=1):
+    def __CheckConvergence(self,F_knext,F_k,current_iteration,n1,n2,
+                    absolute_tolerance,relative_tolerance,max_iterations,type_iteration,n_iteration_1=1,n_iteration_2=1,):
         
         n1=n1
         n2=n2
@@ -614,25 +490,17 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
 
         return current_p_vect_ineq,current_p_vect_eq
 # ==============================================================================
-    def __Scale_constraints(self,current_iteration,scale_vector,constraint_value,objective_gradient_vector,constraint_gradient_vector):  
-        if constraint_gradient_vector[current_iteration].norm_inf()!=0.0:
-            scale_vector.append(objective_gradient_vector.norm_inf()/constraint_gradient_vector[current_iteration].norm_inf())
-            KM.Logger.Print("")
-            KM.Logger.PrintInfo("ShapeOpt", "Scale  = ",  scale_vector[current_iteration])
-        else:
-            scale_vector.append(1.0)
-        constraint_value[current_iteration]=(scale_vector[current_iteration])*constraint_value[current_iteration]
-        return constraint_value[current_iteration]
-
-    def  __Scale_factors(self,current_iteration,scale_vector,objective_gradient_vector,constraint_gradient_vector):
+    def  __Scale_constraints(self,initial_iteration,current_iteration,scale_vector,constraint_value,objective_gradient_vector,constraint_gradient_vector):
+        if(initial_iteration==1):
             #scale_vector.clear()
-        if constraint_gradient_vector[current_iteration].norm_inf()!=0.0:
-            scale_vector.append(objective_gradient_vector.norm_inf()/constraint_gradient_vector[current_iteration].norm_inf())
-            KM.Logger.Print("")
-            KM.Logger.PrintInfo("ShapeOpt", "Scale  = ",  scale_vector[current_iteration])
-        else:
-            scale_vector.append(1.0)
-        return scale_vector[current_iteration]
+            if constraint_gradient_vector[current_iteration].norm_inf()!=0.0:
+                scale_vector.append(objective_gradient_vector.norm_inf()/constraint_gradient_vector[current_iteration].norm_inf())
+                KM.Logger.Print("")
+                KM.Logger.PrintInfo("ShapeOpt", "Scale  = ",  scale_vector[current_iteration])
+            else:
+                scale_vector.append(1.0)
+        constraint_value[current_iteration]=(scale_vector[current_iteration])*constraint_value[current_iteration]
+        return constraint_value[current_iteration],scale_vector[current_iteration]
 # ==============================================================================
     def __AnalyzeShape(self,total_iteration):
         self.communicator.initializeCommunication()

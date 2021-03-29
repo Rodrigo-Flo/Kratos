@@ -168,6 +168,8 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
         while is_design_converged==False: 
             #for outer_iteration in range(1,self.max_outer_iterations+1):           
             n1=0
+            g_flag=[]
+            g_flag.clear()
             for inner_iteration in range(1,self.max_inner_iterations+1):
                 total_iteration += 1
 
@@ -266,9 +268,10 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
                 for itr in range(len(g_values)):
                     if g_values[itr]>(-1*current_lambda_g[itr])/(2*current_p_vect_ineq[itr]):
                         conditions_ineq+=current_lambda_g[itr]*g_values[itr]+current_p_vect_ineq[itr]*g_values[itr]**2
+                        g_flag.append(True)
                     else:
                         conditions_ineq+=(-1)*(current_lambda_g[itr])**2/(4*current_p_vect_ineq[itr])
-                            
+                        g_flag.append(False)
                 conditions_eq=0.0
                 for itr in range(len(h_values)):
                     conditions_eq+=current_lambda_h[itr]*h_values[itr]+current_p_vect_eq[itr]*h_values[itr]**2
@@ -369,9 +372,13 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
                 else:
                     self.step_size=self.algorithm_settings["line_search"]["step_size"].GetDouble()
                 """
-                self.optimization_utilities.ComputeControlPointUpdate(self.step_size)
-                
+                if inner_iteration==1:
+                     self.step_size=self.algorithm_settings["line_search"]["step_size"].GetDouble()
+                else:
+                    self.step_size=self.__QuadraticPolinomialAproximation(total_iteration,g_flag,current_lambda_g,current_lambda_h,
+                                                    current_p_vect_ineq,current_p_vect_eq,scale_g_vector,scale_h_vector,alpha_0=0,alpha_1=1,alpha_2=3,)
 
+                self.optimization_utilities.ComputeControlPointUpdate(self.step_size)
                     
                 dA_dX_mapped_previous=dA_dX_mapped
                 previous_search_direction=search_direction_augmented
@@ -408,7 +415,77 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
                 break
             if is_design_converged:
                 break
-       
+
+
+
+    def __QuadraticPolinomialAproximation(self,total_iteration,g_flag,current_lambda_g,current_lambda_h,
+                                                    current_p_vect_ineq,current_p_vect_eq,scale_g_vector,scale_h_vector,alpha_0=0,alpha_1=1,alpha_2=3):
+        
+        #A_list=[]
+        self.optimization_utilities.ComputeControlPointUpdate(alpha_0) 
+        self.mapper.Map(KSO.CONTROL_POINT_UPDATE, KSO.SHAPE_UPDATE)
+        self.model_part_controller.DampNodalVariableIfSpecified(KSO.SHAPE_UPDATE)
+        
+        A_0=self.__addPhi(total_iteration,g_flag,current_lambda_g,current_lambda_h,
+                    current_p_vect_ineq,current_p_vect_eq,scale_g_vector,scale_h_vector)
+        #A_list.append(A_0)
+        
+        self.optimization_utilities.ComputeControlPointUpdate(alpha_1-alpha_0) 
+        self.mapper.Map(KSO.CONTROL_POINT_UPDATE, KSO.SHAPE_UPDATE)
+        self.model_part_controller.DampNodalVariableIfSpecified(KSO.SHAPE_UPDATE)
+
+        A_1=self.__addPhi(total_iteration,g_flag,current_lambda_g,current_lambda_h,
+                    current_p_vect_ineq,current_p_vect_eq,scale_g_vector,scale_h_vector)
+
+        #A_list.append(A_1)
+
+        self.optimization_utilities.ComputeControlPointUpdate(alpha_2-alpha_1) 
+        self.mapper.Map(KSO.CONTROL_POINT_UPDATE, KSO.SHAPE_UPDATE)
+        self.model_part_controller.DampNodalVariableIfSpecified(KSO.SHAPE_UPDATE)
+
+        A_2=self.__addPhi(total_iteration,g_flag,current_lambda_g,current_lambda_h,
+                    current_p_vect_ineq,current_p_vect_eq,scale_g_vector,scale_h_vector)
+        
+
+        #A_list.append(A_2)
+
+        a2=((A_2-A_0/alpha_2-alpha_0)-(A_1-A_0/alpha_1-alpha_0))/(alpha_2-alpha_1)
+        a1=(A_1-A_0)/(alpha_1-alpha_0)-a2*(alpha_0+alpha_1)
+        alpha_optimum=-a1/(2*a2)
+        return alpha_optimum
+    
+    def __addPhi(total_iteration,g_flag,current_lambda_g,current_lambda_h,
+                    current_p_vect_ineq,current_p_vect_eq,scale_g_vector,scale_h_vector):
+        self.__InitializeNewShape(total_iteration)
+        self.__AnalyzeShape(total_iteration)
+        self.__Mapping()
+                
+                
+        objective_value = self.communicator.getStandardizedValue(self.objectives[0]["identifier"].GetString())      
+        g_values,h_values=self.__SeparateConstraintsPolinomial()
+
+        #-------------Scaling constraints----------------------------------------------------------------------#
+        for itr in range(len(g_values)):
+            g_values[itr]=scale_g_vector[itr]*g_values[itr]
+        for itr in range(len(h_values)):
+            h_values[itr]=scale_h_vector[itr]*h_values[itr]
+        #---------------End of scaling------------------------------------------------------------------------#       
+        
+        #----------------------------------------------------------------------------------------------------#
+        conditions_ineq=0.0                             
+        for itr in range(len(g_values)):
+            if g_flag[itr]==True:#(-1*current_lambda_g[itr])/(2*current_p_vect_ineq[itr]):
+                conditions_ineq+=current_lambda_g[itr]*g_values[itr]+current_p_vect_ineq[itr]*g_values[itr]**2
+            else:
+                conditions_ineq+=(-1)*(current_lambda_g[itr])**2/(4*current_p_vect_ineq[itr])
+                            
+        conditions_eq=0.0
+        for itr in range(len(h_values)):
+            conditions_eq+=current_lambda_h[itr]*h_values[itr]+current_p_vect_eq[itr]*h_values[itr]**2
+                
+
+        A=objective_value+conditions_ineq+conditions_eq
+        return A
 # ==============================================================================
     def FinalizeOptimizationLoop(self):
         self.analyzer.FinalizeAfterOptimizationLoop()
@@ -661,3 +738,20 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
        additional_values_to_log["current_penalty_factor_equalities"] = current_p_vect_eq
        self.data_logger.LogCurrentValues(total_iteration, additional_values_to_log)
        self.data_logger.LogCurrentDesign(total_iteration)
+
+    def __SeparateConstraintsPolinomial(self):
+        equality_constraint_values = []
+        inequality_constraint_values = []
+      
+        for constraint in self.constraints:
+            identifier = constraint["identifier"].GetString()
+            if self.__InequalityConstraint(constraint)==True:
+                constraint_value = self.communicator.getStandardizedValue(identifier)
+                inequality_constraint_values.append(constraint_value)
+            else:
+                constraint_value = self.communicator.getStandardizedValue(identifier)
+                equality_constraint_values.append(constraint_value)
+
+
+
+        return inequality_constraint_values, equality_constraint_values

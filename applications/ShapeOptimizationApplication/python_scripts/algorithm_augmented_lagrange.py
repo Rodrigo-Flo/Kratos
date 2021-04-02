@@ -215,18 +215,30 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
                     scale_g_vector.clear()
                     scale_h_vector.clear()
                 for itr in range(len(g_gradient_variables)):
-                    g_values[itr],scale_g_vector[itr]=self.__Scale_constraints(inner_iteration,itr,
+                    g_values[itr],g_gradient_vector_kratos[itr],scale_g_vector[itr]=self.__Scale_constraints(inner_iteration,itr,
                                         scale_g_vector,g_values,nabla_f,g_gradient_vector_kratos)  
                 for itr in range(len(h_gradient_variables)):
-                    h_values[itr],scale_h_vector[itr]=self.__Scale_constraints(inner_iteration,itr,
+                    h_values[itr],h_gradient_vector_kratos[itr],scale_h_vector[itr]=self.__Scale_constraints(inner_iteration,itr,
                                         scale_h_vector,h_values,nabla_f,h_gradient_vector_kratos)
             #---------------End of scaling------------------------------------------------------------------------#
                
-                if (inner_iteration==2 and outer_iteration==1):
+                if (inner_iteration==1 and outer_iteration==1):
                     c_k,c_knext,c_k_eq,c_knext_eq=self.__AreInitialConstraintFeasible(g_values,h_values)
             #----------------------------------------------------------------------------------------------------#
                 
                 if (inner_iteration==1 and outer_iteration>1):  
+                    # Update lambda
+                    for itr in range(len(g_values)):
+                        if g_values[itr]>(-1*current_lambda_g[itr])/(2*current_p_vect_ineq[itr]):
+                            current_lambda_g[itr]=current_lambda_g[itr]+2*current_p_vect_ineq[itr]*g_values[itr]
+                        else:
+                            current_lambda_g[itr]=current_lambda_g[itr]-(2*current_p_vect_ineq[itr]*current_lambda_g[itr])/(2*current_p_vect_ineq[itr])#0.0
+                
+                    for itr in range(len(h_values)):
+                        current_lambda_h[itr]=current_lambda_h[itr]+2*current_p_vect_eq[itr]*h_values[itr]
+                   
+                   
+                   
                     #Update penalty factor vector
                     if self.number_ineq >0:
                         c_knext.clear()
@@ -234,7 +246,7 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
                             c_knext.append(max(g_values[i],0))
                                     
                         for i in range (len(c_knext)):
-                            if  not abs(c_knext[i])<=((1/4)*abs(c_k[i])):
+                            if  abs(c_knext[i])>((1/4)*abs(c_k[i])):
                                 if current_p_vect_ineq[i]>=self.pmax:
                                     current_p_vect_ineq[i]=self.pmax                        
                                 else:
@@ -247,45 +259,39 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
                             c_knext_eq.append(max(h_values[i],0))
                     
                         for i in range (len(c_knext_eq)):
-                            if  not abs(c_knext_eq[i])<=((1/4)*abs(c_k_eq[i])):
+                            if  abs(c_knext_eq[i])>((1/4)*abs(c_k_eq[i])):
                                 if current_p_vect_eq[i]>=self.pmax:
                                     current_p_vect_eq[i]=self.pmax                        
                                 else:
                                     current_p_vect_eq[i]=self.gamma*current_p_vect_eq[i]                      
                         c_k_eq=c_knext_eq.copy()    
 
-                    # Update lambda
-                    for itr in range(len(g_values)):
-                        if g_values[itr]>(-1*current_lambda_g[itr])/(2*current_p_vect_ineq[itr]):
-                            current_lambda_g[itr]=current_lambda_g[itr]+2*current_p_vect_ineq[itr]*g_values[itr]
-                        else:
-                            current_lambda_g[itr]=0.0
-                
-                    for itr in range(len(h_values)):
-                        current_lambda_h[itr]=current_lambda_h[itr]+2*current_p_vect_eq[itr]*h_values[itr]     
+                        
 
                 conditions_ineq=0.0                             
-                for itr in range(len(g_values)):
-                    if g_values[itr]>(-1*current_lambda_g[itr])/(2*current_p_vect_ineq[itr]):
-                        conditions_ineq+=current_lambda_g[itr]*g_values[itr]+current_p_vect_ineq[itr]*g_values[itr]**2
-                        g_flag.append(True)
-                    else:
-                        conditions_ineq+=(-1)*(current_lambda_g[itr])**2/(4*current_p_vect_ineq[itr])
-                        g_flag.append(False)
+                if inner_iteration==1:
+                    for itr in range(len(g_values)):
+                        if g_values[itr]>(-1*current_lambda_g[itr])/(2*current_p_vect_ineq[itr]):
+                            conditions_ineq+=current_lambda_g[itr]*g_values[itr]+current_p_vect_ineq[itr]*g_values[itr]**2
+                            g_flag.append(True)
+                        else:
+                            conditions_ineq+=(-1)*(current_lambda_g[itr])**2/(4*current_p_vect_ineq[itr])
+                            g_flag.append(False)
+                else:
+                    for itr in range(len(g_values)):
+                        if g_flag[itr]==True:
+                            conditions_ineq+=current_lambda_g[itr]*g_values[itr]+current_p_vect_ineq[itr]*g_values[itr]**2                         
+                        else:
+                            conditions_ineq+=(-1)*(current_lambda_g[itr])**2/(4*current_p_vect_ineq[itr])
+                            
+
                 conditions_eq=0.0
                 for itr in range(len(h_values)):
                     conditions_eq+=current_lambda_h[itr]*h_values[itr]+current_p_vect_eq[itr]*h_values[itr]**2
                 
 
                 A=objective_value+conditions_ineq+conditions_eq
-                self.A=A#Used by the AdjustStepSize Function
-                """
-                if self.line_search_type == "adaptive_stepping" and inner_iteration > 1:
-                   self.__AdjustStepSize(previous_A)
-                elif inner_iteration==1:
-                    self.step_size=self.algorithm_settings["line_search"]["step_size"].GetDouble()
-                """
-                
+                self.A=A#Used by the AdjustStepSize Function              
                 
                 if total_iteration==1:
                     dA_relative = 0.0
@@ -316,18 +322,17 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
 
                                                
                 for itr in range(len(g_gradient_variables)):
-                    if g_values[itr]>(-1*current_lambda_g[itr])/(2*current_p_vect_ineq[itr]):
-                        conditions_grad_ineq_vector+=(current_lambda_g[itr]*scale_g_vector[itr]+2*current_p_vect_ineq[itr]*g_values[itr]*scale_g_vector[itr])*g_gradient_vector_kratos[itr]
+                    if g_flag[itr]==True:#g_values[itr]>(-1*current_lambda_g[itr])/(2*current_p_vect_ineq[itr]):
+                        conditions_grad_ineq_vector+=(current_lambda_g[itr]+2*current_p_vect_ineq[itr]*g_values[itr])*g_gradient_vector_kratos[itr]
                     else:
-                        conditions_grad_ineq_vector+=conditions_grad_ineq_vector
+                        pass#conditions_grad_ineq_vector+=conditions_grad_ineq_vector #Check this part
                     
                 for itr in range(len(h_gradient_variables)):
-                    conditions_grad_eq_vector+=(current_lambda_h[itr]*scale_h_vector[itr]+2*current_p_vect_eq[itr]*h_values[itr]*scale_h_vector[itr])*h_gradient_vector_kratos[itr]#(current_lambda_h[itr]+2*current_p_vect_eq[itr]*h_values[itr])*h_gradient_vector_kratos[itr]
+                    conditions_grad_eq_vector+=(current_lambda_h[itr]+2*current_p_vect_eq[itr]*h_values[itr])*h_gradient_vector_kratos[itr]#(current_lambda_h[itr]+2*current_p_vect_eq[itr]*h_values[itr])*h_gradient_vector_kratos[itr]
                 
                 dA_dX_mapped=nabla_f+conditions_grad_ineq_vector+conditions_grad_eq_vector   
                 gp_utilities.AssignVectorToVariable(dA_dX_mapped,KSO.DADX_MAPPED)
-                #search_direction_augmented=-1*dA_dX_mapped#H_.__mul__(dA_dX_mapped) 
-                #gp_utilities.AssignVectorToVariable(search_direction_augmented, KSO.SEARCH_DIRECTION)
+                
                 
                  #---Quasi_Newton_Method-----#
                 if inner_iteration==1:
@@ -342,7 +347,6 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
                     y_=dA_dX_mapped-dA_dX_mapped_previous
                     s_ = KM.Vector()
                     gp_utilities.AssembleVector(s_,KSO.CONTROL_POINT_UPDATE)#KSO.CONTROL_POINT_UPDATE)
-                    #s_=self.step_size*s_
                     s_matrix=KM.Matrix()
                     y_matrix=KM.Matrix()
                     gp_utilities.AssembleMatrixFromVector(y_matrix,y_)
@@ -372,12 +376,13 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
                 else:
                     self.step_size=self.algorithm_settings["line_search"]["step_size"].GetDouble()
                 """
+                """
                 if inner_iteration==1:
                      self.step_size=self.algorithm_settings["line_search"]["step_size"].GetDouble()
                 else:
                     self.step_size=self.__QuadraticPolinomialAproximation(total_iteration,g_flag,current_lambda_g,current_lambda_h,
                                                     current_p_vect_ineq,current_p_vect_eq,scale_g_vector,scale_h_vector,alpha_0=0,alpha_1=1,alpha_2=3,)
-
+                """
                 self.optimization_utilities.ComputeControlPointUpdate(self.step_size)
                     
                 dA_dX_mapped_previous=dA_dX_mapped
@@ -386,7 +391,7 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
                 self.model_part_controller.DampNodalVariableIfSpecified(KSO.SHAPE_UPDATE)
                 
                 self.__LogCurrentOptimizationStep(outer_iteration,inner_iteration,
-                                                current_lambda_g,current_lambda_h,current_p_vect_ineq,current_p_vect_eq,
+                                                current_lambda_g,current_lambda_h,current_p_vect_ineq,current_p_vect_eq,scale_g_vector,scale_h_vector,
                                                 total_iteration)
                 KM.Logger.Print("")
                 KM.Logger.PrintInfo("ShapeOpt", "Time needed for current optimization step = ", timer.GetLapTime(), "s")
@@ -454,7 +459,7 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
         alpha_optimum=-a1/(2*a2)
         return alpha_optimum
     
-    def __addPhi(total_iteration,g_flag,current_lambda_g,current_lambda_h,
+    def __addPhi(self,total_iteration,g_flag,current_lambda_g,current_lambda_h,
                     current_p_vect_ineq,current_p_vect_eq,scale_g_vector,scale_h_vector):
         self.__InitializeNewShape(total_iteration)
         self.__AnalyzeShape(total_iteration)
@@ -577,7 +582,8 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
             else:
                 scale_vector.append(1.0)
         constraint_value[current_iteration]=(scale_vector[current_iteration])*constraint_value[current_iteration]
-        return constraint_value[current_iteration],scale_vector[current_iteration]
+        constraint_gradient_vector[current_iteration]=(scale_vector[current_iteration])*constraint_gradient_vector[current_iteration]
+        return constraint_value[current_iteration],constraint_gradient_vector[current_iteration],scale_vector[current_iteration]
 # ==============================================================================
     def __AnalyzeShape(self,total_iteration):
         self.communicator.initializeCommunication()
@@ -725,7 +731,7 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
 # ==============================================================================
     def __LogCurrentOptimizationStep(self,outer_iteration,inner_iteration,
                                                 current_lambda_g,current_lambda_h,current_p_vect_ineq,current_p_vect_eq
-                                                ,total_iteration):
+                                                ,scale_g_vector,scale_h_vector,total_iteration):
        additional_values_to_log = {}
        additional_values_to_log["step_size"] = self.step_size
        additional_values_to_log["outer_iteration"] = outer_iteration
@@ -736,6 +742,8 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
        additional_values_to_log["current_lambda_equalities"] = current_lambda_h
        additional_values_to_log["current_penalty_factor_inequalities"] = current_p_vect_ineq
        additional_values_to_log["current_penalty_factor_equalities"] = current_p_vect_eq
+       additional_values_to_log["scale_inequality_factors"]= scale_g_vector
+       additional_values_to_log["scale_equality_factors"]= scale_h_vector
        self.data_logger.LogCurrentValues(total_iteration, additional_values_to_log)
        self.data_logger.LogCurrentDesign(total_iteration)
 

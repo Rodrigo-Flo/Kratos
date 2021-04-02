@@ -48,12 +48,14 @@ class ValueLoggerAugmentedLagrange( ValueLogger ):
             row.append("{:>13s}".format("dA_rel[%]"))
             
             for itr in range(self.number_eq):
-                row.append("{:>13s}".format("l_multiplier_equality"+str(itr+1)))
-                row.append("{:>13s}".format("p_factor_equality"+str(itr+1)))
+                row.append("{:>13s}".format("l_multiplier_equality "+str(itr+1)))
+                row.append("{:>13s}".format("p_factor_equality "+str(itr+1)))
+                row.append("{:>13s}".format("scale_factor_equality "+str(itr+1)))
 
             for itr in range(self.number_ineq):
-                row.append("{:>13s}".format("l_multiplier_inequality"+str(itr+1)))
-                row.append("{:>13s}".format("p_factor_inequality"+str(itr+1)))
+                row.append("{:>13s}".format("l_multiplier_inequality "+str(itr+1)))
+                row.append("{:>13s}".format("p_factor_inequality "+str(itr+1)))
+                row.append("{:>13s}".format("scale_factor_inequality "+str(itr+1)))
 
 
             row.append("{:>13s}".format("step_size"))
@@ -80,11 +82,13 @@ class ValueLoggerAugmentedLagrange( ValueLogger ):
 
         for itr in range(len(self.history["current_penalty_factor_equalities"][self.current_index])):
             KM.Logger.PrintInfo("ShapeOpt", "Current equality Lambda "+str(itr+1)+" = ", "{:> .5E}".format(self.history["current_lambda_equalities"][self.current_index][itr]))
-            KM.Logger.PrintInfo("ShapeOpt", "Current equality penalty factor "+str(itr+1)+" = ", "{:> .5E}".format(self.history["current_penalty_factor_equalities"][self.current_index][itr]),"\n")
+            KM.Logger.PrintInfo("ShapeOpt", "Current equality penalty factor "+str(itr+1)+" = ", "{:> .5E}".format(self.history["current_penalty_factor_equalities"][self.current_index][itr]))
+            KM.Logger.PrintInfo("ShapeOpt", "Equality scale factor "+str(itr+1)+" = ", "{:> .5E}".format(self.history["scale_equality_factors"][self.current_index][itr]),"\n")
             
         for itr in range(len(self.history["current_penalty_factor_inequalities"][self.current_index])):
             KM.Logger.PrintInfo("ShapeOpt", "Current inequality Lambda "+str(itr+1)+" = ", "{:> .5E}".format(self.history["current_lambda_inequalities"][self.current_index][itr]))
             KM.Logger.PrintInfo("ShapeOpt", "Current inequality penalty factor "+str(itr+1)+" = ", "{:> .5E}".format(self.history["current_penalty_factor_inequalities"][self.current_index][itr]))
+            KM.Logger.PrintInfo("ShapeOpt", "Inequality scale factor "+str(itr+1)+" = ", "{:> .5E}".format(self.history["scale_inequality_factors"][self.current_index][itr]),"\n")
     # --------------------------------------------------------------------------
     def _WriteCurrentValuesToFile( self ):
         with open(self.complete_log_file_name, 'a') as csvfile:
@@ -112,10 +116,12 @@ class ValueLoggerAugmentedLagrange( ValueLogger ):
             for itr in range(len(self.history["current_penalty_factor_equalities"][self.current_index])):
                 row.append("{:> .5E}".format(self.history["current_lambda_equalities"][self.current_index][itr]))
                 row.append("{:> .5E}".format(self.history["current_penalty_factor_equalities"][self.current_index][itr]))
+                row.append("{:> .5E}".format(self.history["scale_equality_factors"][self.current_index][itr]))
             
             for itr in range(len(self.history["current_penalty_factor_inequalities"][self.current_index])):
                 row.append("{:> .5E}".format(self.history["current_lambda_inequalities"][self.current_index][itr]))
                 row.append("{:> .5E}".format(self.history["current_penalty_factor_inequalities"][self.current_index][itr]))
+                row.append("{:> .5E}".format(self.history["scale_inequality_factors"][self.current_index][itr]))
                
 
 

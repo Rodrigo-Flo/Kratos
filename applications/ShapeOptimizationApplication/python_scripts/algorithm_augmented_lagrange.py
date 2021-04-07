@@ -279,7 +279,7 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
                             g_flag.append(False)
                 else:
                     for itr in range(len(g_values)):
-                        if g_flag[itr]==True:
+                        if g_values[itr]>(-1*current_lambda_g[itr])/(2*current_p_vect_ineq[itr]):#g_flag[itr]==True:
                             conditions_ineq+=current_lambda_g[itr]*g_values[itr]+current_p_vect_ineq[itr]*g_values[itr]**2                         
                         else:
                             conditions_ineq+=(-1)*(current_lambda_g[itr])**2/(4*current_p_vect_ineq[itr])
@@ -306,7 +306,7 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
                         if is_design_converged: 
                             KM.Logger.Print("")
                             self.__LogCurrentOptimizationStep(outer_iteration,inner_iteration,
-                                                current_lambda_g,current_lambda_h,current_p_vect_ineq,current_p_vect_eq,
+                                                current_lambda_g,current_lambda_h,current_p_vect_ineq,current_p_vect_eq,scale_g_vector,scale_h_vector,
                                                 total_iteration)
                             break
                     A_init_inner=A
@@ -322,7 +322,7 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
 
                                                
                 for itr in range(len(g_gradient_variables)):
-                    if g_flag[itr]==True:#g_values[itr]>(-1*current_lambda_g[itr])/(2*current_p_vect_ineq[itr]):
+                    if g_values[itr]>(-1*current_lambda_g[itr])/(2*current_p_vect_ineq[itr]):#g_flag[itr]==True:
                         conditions_grad_ineq_vector+=(current_lambda_g[itr]+2*current_p_vect_ineq[itr]*g_values[itr])*g_gradient_vector_kratos[itr]
                     else:
                         pass#conditions_grad_ineq_vector+=conditions_grad_ineq_vector #Check this part

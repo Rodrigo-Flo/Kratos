@@ -472,10 +472,10 @@ public:
         double step_size= StepSize;
         Vector d= g_k_previous*(-1/step_size);
         Vector y= g_k-g_k_previous;
-        //step_size=(trans(d)*y)/(trans(d)*d);
-        step_size=(inner_prod(d,y))/(inner_prod(d,d));
-        //step_size=(inner_prod(y,y))/(inner_prod(y,d));
-        return step_size;
+        
+        //step_size=(inner_prod(d,y))/(inner_prod(d,d));
+        step_size=(inner_prod(y,y))/(inner_prod(y,d));
+        return (step_size);
         
     }
 
@@ -493,7 +493,6 @@ public:
         double step_size= StepSize;
         Vector d= search_direction*(1/step_size);
         Vector y= search_direction_previous-search_direction; //g_k+search_direction;
-        //step_size=(trans(d)*y)/(trans(d)*d);
         //step_size=(inner_prod(d,y))/(inner_prod(d,d));
         step_size=(inner_prod(y,y))/(inner_prod(y,d));
         return step_size;

@@ -32,13 +32,13 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
         default_algorithm_settings = KM.Parameters("""
         {
             "name"                    : "augmented_lagrange",
-            "max_correction_share"    : 0.75,
+           
             "max_total_iterations"    : 500,
             "max_outer_iterations"    : 100,
             "max_inner_iterations"    : 50,
-            "min_inner_iterations"    :  3,
             "gamma"                   :  2.0,
             "penalty_factor_initial"  : 1.0,
+            "uncostrained_method"     : "steepest_descent",
             "inner_iteration_tolerance"      : 1e-0,
             "line_search" : {
                 "line_search_type"           : "manual_stepping",
@@ -56,10 +56,6 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
 
         self.optimization_settings = optimization_settings
         self.mapper_settings = optimization_settings["design_variables"]["filter"] #Filter applied on vertex morphing
-        #Filter for penalty term?
-        '''if self.algorithm_settings["filter_penalty_term"].GetBool():
-            if self.algorithm_settings["penalty_filter_radius"].GetDouble() == -1.0:
-                raise RuntimeError("The parameter `penalty_filter_radius` is missing in order to filter the penalty term!")'''
         #analyzer, communicator, model_part_controller necessary for the optimizer
         self.analyzer = analyzer
         self.communicator = communicator
@@ -81,6 +77,10 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
         self.number_ineq=0
         self.number_eq=0
         self.p= self.algorithm_settings["penalty_factor_initial"].GetDouble()#1.0#1387281818.0#1e9
+
+        self.unconstrained_method= self.algorithm_settings["uncostrained_method"].GetString()#14.06 steepest_descent BFGS
+        self.line_search_type = self.algorithm_settings["line_search"]["line_search_type"].GetString() #manual_steeping or adaptive_steeping
+        
         self.pmax=1e+10*self.p
         self.gamma=self.algorithm_settings["gamma"].GetDouble()#10.0
 
@@ -96,7 +96,7 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
         
         self.estimation_tolerance = self.algorithm_settings["line_search"]["estimation_tolerance"].GetDouble()
         self.step_size = self.algorithm_settings["line_search"]["step_size"].GetDouble()
-        self.line_search_type = self.algorithm_settings["line_search"]["line_search_type"].GetString()
+        
         self.increase_factor = self.algorithm_settings["line_search"]["increase_factor"].GetDouble()
         self.max_step_size = self.algorithm_settings["line_search"]["step_size"].GetDouble()*self.algorithm_settings["line_search"]["max_increase_factor"].GetDouble()
       
@@ -104,7 +104,7 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
         self.max_outer_iterations = self.algorithm_settings["max_outer_iterations"].GetInt()
         
         self.max_inner_iterations = self.algorithm_settings["max_inner_iterations"].GetInt()
-        self.min_inner_iterations = self.algorithm_settings["min_inner_iterations"].GetInt()
+       
         self.inner_iteration_tolerance = self.algorithm_settings["inner_iteration_tolerance"].GetDouble()
 
         self.optimization_model_part = model_part_controller.GetOptimizationModelPart()
@@ -168,6 +168,8 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
         while is_design_converged==False: 
             #for outer_iteration in range(1,self.max_outer_iterations+1):           
             n1=0
+            n2=0
+            is_design_inner_converged=False
             g_flag=[]
             g_flag.clear()
             for inner_iteration in range(1,self.max_inner_iterations+1):
@@ -232,7 +234,7 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
                         if g_values[itr]>(-1*current_lambda_g[itr])/(2*current_p_vect_ineq[itr]):
                             current_lambda_g[itr]=current_lambda_g[itr]+2*current_p_vect_ineq[itr]*g_values[itr]
                         else:
-                            current_lambda_g[itr]=current_lambda_g[itr]-(2*current_p_vect_ineq[itr]*current_lambda_g[itr])/(2*current_p_vect_ineq[itr])#0.0
+                            current_lambda_g[itr]=0.0#current_lambda_g[itr]-(2*current_p_vect_ineq[itr]*current_lambda_g[itr])/(2*current_p_vect_ineq[itr])#0.0
                 
                     for itr in range(len(h_values)):
                         current_lambda_h[itr]=current_lambda_h[itr]+2*current_p_vect_eq[itr]*h_values[itr]
@@ -271,7 +273,7 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
                 conditions_ineq=0.0                             
                 if inner_iteration==1:
                     for itr in range(len(g_values)):
-                        if g_values[itr]>(-1*current_lambda_g[itr])/(2*current_p_vect_ineq[itr]):
+                        if g_values[itr]>((-1*current_lambda_g[itr])/(2*current_p_vect_ineq[itr])):
                             conditions_ineq+=current_lambda_g[itr]*g_values[itr]+current_p_vect_ineq[itr]*g_values[itr]**2
                             g_flag.append(True)
                         else:
@@ -279,7 +281,7 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
                             g_flag.append(False)
                 else:
                     for itr in range(len(g_values)):
-                        if g_values[itr]>(-1*current_lambda_g[itr])/(2*current_p_vect_ineq[itr]):#g_flag[itr]==True:
+                        if g_values[itr]>((-1*current_lambda_g[itr])/(2*current_p_vect_ineq[itr])):#g_flag[itr]==True:#g_values[itr]>((-1*current_lambda_g[itr])/(2*current_p_vect_ineq[itr])):#g_flag[itr]==True:#
                             conditions_ineq+=current_lambda_g[itr]*g_values[itr]+current_p_vect_ineq[itr]*g_values[itr]**2                         
                         else:
                             conditions_ineq+=(-1)*(current_lambda_g[itr])**2/(4*current_p_vect_ineq[itr])
@@ -302,7 +304,7 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
                 if inner_iteration ==1:
                     if total_iteration>1:
                         is_design_converged,n1_outer_absolute,n2_outer_relative=self.__CheckConvergence(A,A_init_inner,outer_iteration,n1_outer_absolute,n2_outer_relative,
-                        0.0001,self.inner_iteration_tolerance,self.max_outer_iterations,"outer",n_iteration_1=3,n_iteration_2=3,)
+                        0.0001,self.inner_iteration_tolerance,self.max_outer_iterations,"outer",n_iteration_1=3,n_iteration_2=3)
                         if is_design_converged: 
                             KM.Logger.Print("")
                             self.__LogCurrentOptimizationStep(outer_iteration,inner_iteration,
@@ -322,7 +324,7 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
 
                                                
                 for itr in range(len(g_gradient_variables)):
-                    if g_values[itr]>(-1*current_lambda_g[itr])/(2*current_p_vect_ineq[itr]):#g_flag[itr]==True:
+                    if g_values[itr]>((-1*current_lambda_g[itr])/(2*current_p_vect_ineq[itr])):#g_flag[itr]==True:#g_flag[itr]==True:# g_values[itr]>g_flag[itr]==True:#
                         conditions_grad_ineq_vector+=(current_lambda_g[itr]+2*current_p_vect_ineq[itr]*g_values[itr])*g_gradient_vector_kratos[itr]
                     else:
                         pass#conditions_grad_ineq_vector+=conditions_grad_ineq_vector #Check this part
@@ -330,59 +332,48 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
                 for itr in range(len(h_gradient_variables)):
                     conditions_grad_eq_vector+=(current_lambda_h[itr]+2*current_p_vect_eq[itr]*h_values[itr])*h_gradient_vector_kratos[itr]#(current_lambda_h[itr]+2*current_p_vect_eq[itr]*h_values[itr])*h_gradient_vector_kratos[itr]
                 
-                dA_dX_mapped=nabla_f+conditions_grad_ineq_vector+conditions_grad_eq_vector   
-                gp_utilities.AssignVectorToVariable(dA_dX_mapped,KSO.DADX_MAPPED)
-                
-                
-                 #---Quasi_Newton_Method-----#
-                if inner_iteration==1:
+                if self.unconstrained_method== "steepest_descent":
+                    dA_dX_mapped=nabla_f+conditions_grad_ineq_vector+conditions_grad_eq_vector   
+                    gp_utilities.AssignVectorToVariable(dA_dX_mapped,KSO.DADX_MAPPED)
                     search_direction_augmented=-1*dA_dX_mapped#H_.__mul__(dA_dX_mapped) 
                     gp_utilities.AssignVectorToVariable(search_direction_augmented, KSO.SEARCH_DIRECTION)
-                    H_=KM.Matrix()
-                    H_.Resize(nabla_f.Size(),nabla_f.Size()) #H_.Resize(3,3)
-                    H_.fill_identity() 
+                elif self.unconstrained_method== "BFGS":
+                    #---Quasi_Newton_Method-----#
+                    if inner_iteration==1:
+                        search_direction_augmented=-1*dA_dX_mapped#H_.__mul__(dA_dX_mapped) 
+                        gp_utilities.AssignVectorToVariable(search_direction_augmented, KSO.SEARCH_DIRECTION)
+                        H_=KM.Matrix()
+                        H_.Resize(nabla_f.Size(),nabla_f.Size()) #H_.Resize(3,3)
+                        H_.fill_identity() 
                 
-                else:
+                    else:
                   
-                    y_=dA_dX_mapped-dA_dX_mapped_previous
-                    s_ = KM.Vector()
-                    gp_utilities.AssembleVector(s_,KSO.CONTROL_POINT_UPDATE)#KSO.CONTROL_POINT_UPDATE)
-                    s_matrix=KM.Matrix()
-                    y_matrix=KM.Matrix()
-                    gp_utilities.AssembleMatrixFromVector(y_matrix,y_)
-                    gp_utilities.AssembleMatrixFromVector(s_matrix,s_)
+                        y_=dA_dX_mapped-dA_dX_mapped_previous
+                        s_ = KM.Vector()
+                        gp_utilities.AssembleVector(s_,KSO.CONTROL_POINT_UPDATE)#KSO.CONTROL_POINT_UPDATE)
+                        s_matrix=KM.Matrix()
+                        y_matrix=KM.Matrix()
+                        gp_utilities.AssembleMatrixFromVector(y_matrix,y_)
+                        gp_utilities.AssembleMatrixFromVector(s_matrix,s_)
                     
-                    gp_utilities.UpdateHBFGS(H_,y_matrix,s_matrix)
+                        gp_utilities.UpdateHBFGS(H_,y_matrix,s_matrix)
                     
-                    search_direction_augmented=-1*(H_.__mul__(dA_dX_mapped))
-                    gp_utilities.AssignVectorToVariable(search_direction_augmented, KSO.SEARCH_DIRECTION)
+                        search_direction_augmented=-1*(H_.__mul__(dA_dX_mapped))
+                        gp_utilities.AssignVectorToVariable(search_direction_augmented, KSO.SEARCH_DIRECTION)
                 
-                """ 
-                if inner_iteration>1:
-                    self.step_size= abs(gp_utilities.CalculateStepSize_BB_QuasiNewton(dA_dX_mapped,dA_dX_mapped_previous,previous_search_direction,self.step_size))
-                    if abs(self.step_size)<0.1*self.algorithm_settings["line_search"]["step_size"].GetDouble():
+                
+                if self.line_search_type=="adaptive_stepping":
+                    if inner_iteration>1:
+                            
+                        self.step_size= 1/(abs(gp_utilities.CalculateStepSize_BB(dA_dX_mapped,dA_dX_mapped_previous,1/self.step_size)))
+                        beta=1/self.step_size
+                        if abs(beta)<0.1*(self.algorithm_settings["line_search"]["step_size"].GetDouble()):
+                            self.step_size=self.algorithm_settings["line_search"]["step_size"].GetDouble()
+                            
+                
+                    else:
                         self.step_size=self.algorithm_settings["line_search"]["step_size"].GetDouble()
-                
-                else:
-                    self.step_size=self.algorithm_settings["line_search"]["step_size"].GetDouble()
-                """
-                
-                """"
-                if inner_iteration>1:
-                    self.step_size= (gp_utilities.CalculateStepSize_BB(dA_dX_mapped,dA_dX_mapped_previous,self.step_size))
-                    #if abs(self.step_size)<0.1*self.algorithm_settings["line_search"]["step_size"].GetDouble():
-                    #    self.step_size=self.algorithm_settings["line_search"]["step_size"].GetDouble()
-                
-                else:
-                    self.step_size=self.algorithm_settings["line_search"]["step_size"].GetDouble()
-                """
-                """
-                if inner_iteration==1:
-                     self.step_size=self.algorithm_settings["line_search"]["step_size"].GetDouble()
-                else:
-                    self.step_size=self.__QuadraticPolinomialAproximation(total_iteration,g_flag,current_lambda_g,current_lambda_h,
-                                                    current_p_vect_ineq,current_p_vect_eq,scale_g_vector,scale_h_vector,alpha_0=0,alpha_1=1,alpha_2=3,)
-                """
+                        
                 self.optimization_utilities.ComputeControlPointUpdate(self.step_size)
                     
                 dA_dX_mapped_previous=dA_dX_mapped
@@ -397,16 +388,21 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
                 KM.Logger.PrintInfo("ShapeOpt", "Time needed for current optimization step = ", timer.GetLapTime(), "s")
                 KM.Logger.PrintInfo("ShapeOpt", "Time needed for total optimization so far = ", timer.GetTotalTime(), "s")
                 
-                previous_A=A
+                
     	        # Convergence check of inner loop
                 
+                if inner_iteration>1:
+                    is_design_inner_converged,n1,n2=self.__CheckConvergence(A,previous_A,inner_iteration,n1,n2,
+                        0.001,self.inner_iteration_tolerance,self.max_inner_iterations,"inner",n_iteration_1=2,n_iteration_2=2)
+                
+                previous_A=A
                 if total_iteration == self.max_total_iterations:
                     is_max_total_iterations_reached = True
                     break
                 if inner_iteration >1:            
-                    if abs(dA_relative) < self.inner_iteration_tolerance:
-                        n1+=1
-                    if n1==2:
+                    #if abs(dA_relative) < self.inner_iteration_tolerance:
+                    #    n1+=1
+                    if is_design_inner_converged:#n1==2:
                         break
 
             outer_iteration+=1
@@ -424,8 +420,8 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
 
 
     def __QuadraticPolinomialAproximation(self,total_iteration,g_flag,current_lambda_g,current_lambda_h,
-                                                    current_p_vect_ineq,current_p_vect_eq,scale_g_vector,scale_h_vector,alpha_0=0,alpha_1=1,alpha_2=3):
-        
+                                                    current_p_vect_ineq,current_p_vect_eq,scale_g_vector,scale_h_vector,search_direction_augmented,alpha_0=0,alpha_1=1,alpha_2=2):
+        self.optimization_utilities.AssignVectorToVariable(search_direction_augmented, KSO.SEARCH_DIRECTION)
         #A_list=[]
         self.optimization_utilities.ComputeControlPointUpdate(alpha_0) 
         self.mapper.Map(KSO.CONTROL_POINT_UPDATE, KSO.SHAPE_UPDATE)
@@ -451,11 +447,17 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
         A_2=self.__addPhi(total_iteration,g_flag,current_lambda_g,current_lambda_h,
                     current_p_vect_ineq,current_p_vect_eq,scale_g_vector,scale_h_vector)
         
-
+        self.optimization_utilities.AssignVectorToVariable((-1)*(search_direction_augmented), KSO.SEARCH_DIRECTION)
+        self.optimization_utilities.ComputeControlPointUpdate(alpha_2-alpha_0) 
+        self.mapper.Map(KSO.CONTROL_POINT_UPDATE, KSO.SHAPE_UPDATE)
+        self.model_part_controller.DampNodalVariableIfSpecified(KSO.SHAPE_UPDATE)
+        
+        A_original=self.__addPhi(total_iteration,g_flag,current_lambda_g,current_lambda_h,
+                    current_p_vect_ineq,current_p_vect_eq,scale_g_vector,scale_h_vector)
         #A_list.append(A_2)
-
-        a2=((A_2-A_0/alpha_2-alpha_0)-(A_1-A_0/alpha_1-alpha_0))/(alpha_2-alpha_1)
-        a1=(A_1-A_0)/(alpha_1-alpha_0)-a2*(alpha_0+alpha_1)
+        self.optimization_utilities.AssignVectorToVariable(search_direction_augmented, KSO.SEARCH_DIRECTION)
+        a2=(((A_2-A_0)/(alpha_2-alpha_0))-((A_1-A_0)/(alpha_1-alpha_0)))/(alpha_2-alpha_1)
+        a1=((A_1-A_0)/(alpha_1-alpha_0))-a2*(alpha_0+alpha_1)
         alpha_optimum=-a1/(2*a2)
         return alpha_optimum
     
@@ -497,7 +499,7 @@ class AlgorithmAugmentedLagrange(OptimizationAlgorithm):
         self.data_logger.FinalizeDataLogging()
 # ==============================================================================
     def __CheckConvergence(self,F_knext,F_k,current_iteration,n1,n2,
-                    absolute_tolerance,relative_tolerance,max_iterations,type_iteration,n_iteration_1=1,n_iteration_2=1,):
+                    absolute_tolerance,relative_tolerance,max_iterations,type_iteration,n_iteration_1=1,n_iteration_2=1):
         
         n1=n1
         n2=n2

@@ -61,10 +61,10 @@
             }
         },
         "output" : {
-            "design_output_mode" : "none",
+            "design_output_mode" : "WriteOptimizationModelPart",
             "nodal_results"      : [ "SHAPE_CHANGE" ],
             "output_format" : {
-                "name": "gid"
+                "name": "vtk"
             }
         }
     }
